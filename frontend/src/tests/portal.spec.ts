@@ -52,8 +52,17 @@ test.describe("Press Shop Intelligence portal", () => {
     await expect(page.getByText(/password/i)).toHaveCount(0);
 
     // The removed route is gone, not just unlinked.
-    const res = await page.request.get("/login");
-    expect(res.status()).toBe(404);
+    //
+    // Asserted on content rather than status. The portal is served as a static
+    // export behind `try_files $uri $uri/ /index.html`, so every unknown path
+    // returns 200 with the app shell — a 404 is not something the production
+    // host can produce, and asserting one would only ever pass against a local
+    // Node server that is not what ships.
+    await page.goto("/login");
+    await expect(page.getByRole("textbox", { name: /password/i })).toHaveCount(0);
+    await expect(page.locator('input[type="password"]')).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /sign in|log ?in/i })).toHaveCount(0);
+    await page.goto("/");
 
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
@@ -131,7 +140,9 @@ test.describe("Press Shop Intelligence portal", () => {
     await openOverview(page);
 
     await page.getByRole("link", { name: /Mahindra Nashik Plant/ }).click();
-    await page.waitForURL("**/plant/nashik");
+    // Trailing slash: the export emits directory-style routes so the static
+    // host can resolve them off disk.
+    await page.waitForURL("**/plant/nashik/");
 
     await expect(page.getByRole("heading", { name: "Mahindra Nashik Plant" })).toBeVisible();
 
@@ -177,7 +188,7 @@ test.describe("Press Shop Intelligence portal", () => {
   test("selecting a station and a line updates the detail panel", async ({ page }) => {
     const errors = watchConsole(page);
     await openOverview(page);
-    await page.goto("/plant/chakan");
+    await page.goto("/plant/chakan/");
     await expect(page.getByRole("heading", { name: "Mahindra Chakan Plant" })).toBeVisible();
     await expect(page.locator("canvas")).toBeVisible({ timeout: 30_000 });
 

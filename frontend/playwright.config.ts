@@ -29,13 +29,15 @@ export default defineConfig({
   ],
 
   // Setting BASE_URL points the suite at an already-running instance (e.g. the
-  // deployed localhost server) instead of spinning up a throwaway one.
+  // deployed site) instead of spinning up a throwaway one.
   webServer: process.env.BASE_URL
     ? undefined
     : {
-        // Invoked directly rather than via `npm run start`, which pins 3200 —
-        // the suite must not fight the deployed instance for a port.
-        command: "npx next start --port 3100",
+        // Serves the exported `out/` under production's nginx try_files rules.
+        // Not `next start`: that refuses to run against `output: "export"`, and
+        // it would route through Next rather than off disk, hiding exactly the
+        // kind of missing-file break that took the inner pages down.
+        command: "node scripts/serve-static.mjs out 3100",
         url: "http://127.0.0.1:3100/",
         reuseExistingServer: false,
         timeout: 120_000,

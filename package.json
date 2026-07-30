@@ -1,0 +1,14 @@
+{
+  "name": "automobile-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Press Shop Intelligence portal. The application lives in frontend/; this root manifest exists because the deployment pipeline installs and builds at the repository root and publishes ./out.",
+  "scripts": {
+    "postinstall": "cd frontend && npm install --force --no-audit --no-fund",
+    "build": "cd frontend && npm run build && cd .. && rm -rf out && cp -r frontend/out out",
+    "dev": "cd frontend && npm run dev",
+    "start": "cd frontend && npm run start",
+    "lint": "cd frontend && npm run lint",
+    "test:e2e": "cd frontend && npm run test:e2e"
+  }
+}
