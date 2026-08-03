@@ -1,0 +1,300 @@
+/**
+ * Process-level metrics for the whole manufacturing chain.
+ *
+ * The chain is solved as a *flow*, not as eight independent series: each
+ * process takes the good output of the processes feeding it, is capped by its
+ * own sustainable capacity, and passes its good output downstream. That is what
+ * makes the constraint real — the press shop is not flagged as the bottleneck
+ * by a boolean in the catalog, it comes out as the bottleneck because it starves
+ * the body stream, and the marriage station can only build as many vehicles as
+ * the thinner of its two feeds delivers.
+ *
+ * The press shop is not modelled here at all. Its numbers are the press-shop
+ * simulator's actual panel output converted to vehicle sets, so the chain and
+ * the station-level pages report the same production.
+ */
+
+import { Rng } from "@/lib/rng";
+import { PLANTS } from "@/domain/stamping/catalog";
+import {
+  PANELS_PER_VEHICLE,
+  simulatePlantDay,
+  type PlantDayTotals,
+} from "@/domain/stamping/simulator";
+import type { ShiftId } from "@/domain/stamping/types";
+import { PROCESSES, PROCESS_BY_ID, processSequence, type ProcessDef } from "./processes";
+
+export interface ProcessDayMetrics {
+  processId: string;
+  plantId: string;
+  dayKey: string;
+  /** Vehicle sets presented to the process. */
+  input: number;
+  /** Vehicle sets the process actually put through. */
+  produced: number;
+  good: number;
+  rejected: number;
+  ftt: number;
+  oee: number;
+  /** Sustainable output for the window, in vehicle sets. */
+  capacity: number;
+  /** produced / capacity, 0..1+. */
+  utilisation: number;
+  /** Vehicle sets the process could have run but was not fed. */
+  starvedBy: number;
+}
+
+/**
+ * Solves the chain for one plant on one production day.
+ *
+ * Returned in topological order, so a consumer can render it as the flow.
+ */
+export function processChainForPlantDay(
+  plantId: string,
+  dayKey: string,
+  shifts: ShiftId[],
+  pressDay?: PlantDayTotals,
+): ProcessDayMetrics[] {
+  const press = pressDay ?? simulatePlantDay(plantId, dayKey, shifts);
+
+  // Panels -> vehicle sets. A vehicle needs one of every panel in scope, so the
+  // press shop's contribution to a build is its panel count divided by the set
+  // size, not its raw panel count.
+  const pressProduced = press.produced / PANELS_PER_VEHICLE;
+  const pressGood = press.good / PANELS_PER_VEHICLE;
+  const plannedSets = press.planned / PANELS_PER_VEHICLE;
+
+  const out = new Map<string, ProcessDayMetrics>();
+
+  for (const def of processSequence()) {
+    // Capacity is sized against this factory's own build programme, so a small
+    // plant and a large one are each measured against what they are asked to
+    // build rather than against a group-wide constant.
+    const capacity = plannedSets * def.capacityFactor;
+
+    if (def.id === "press-shop") {
+      out.set(def.id, {
+        processId: def.id,
+        plantId,
+        dayKey,
+        input: plannedSets,
+        produced: pressProduced,
+        good: pressGood,
+        rejected: pressProduced - pressGood,
+        ftt: press.ftt,
+        oee: press.oee,
+        capacity,
+        utilisation: capacity > 0 ? pressProduced / capacity : 0,
+        starvedBy: Math.max(0, Math.min(capacity, plannedSets) - pressProduced),
+      });
+      continue;
+    }
+
+    // A process with no upstream inside the plant is fed to programme by the
+    // supply chain; everything else takes the thinnest feed it depends on.
+    const input =
+      def.inputs.length === 0
+        ? plannedSets
+        : Math.min(...def.inputs.map((id) => out.get(id)?.good ?? 0));
+
+    const rng = new Rng("process", def.id, plantId, dayKey, shifts.join(""));
+
+    // Day-to-day variation around the process's nominal character.
+    const oee = clamp(rng.clampedNormal(def.nominalOee, 0.035, 0.35, 0.95), 0.35, 0.95);
+    const ftt = clamp(rng.clampedNormal(def.nominalFtt, 0.012, 0.8, 0.999), 0.8, 0.999);
+
+    // Throughput is whichever runs out first: the feed, or the process's own
+    // capacity degraded by how well it ran today.
+    const effectiveCapacity = capacity * (oee / def.nominalOee);
+    const produced = Math.min(input, effectiveCapacity);
+    const good = produced * ftt;
+
+    out.set(def.id, {
+      processId: def.id,
+      plantId,
+      dayKey,
+      input,
+      produced,
+      good,
+      rejected: produced - good,
+      ftt,
+      oee,
+      capacity,
+      utilisation: capacity > 0 ? produced / capacity : 0,
+      starvedBy: Math.max(0, effectiveCapacity - input),
+    });
+  }
+
+  return processSequence().map((d) => out.get(d.id)!);
+}
+
+/** Pan-India chain for one day: every plant's chain, summed per process. */
+export function processChainForDay(
+  dayKey: string,
+  shifts: ShiftId[],
+  plantIds: string[] = PLANTS.map((p) => p.id),
+): ProcessDayMetrics[] {
+  const perPlant = plantIds.map((id) => processChainForPlantDay(id, dayKey, shifts));
+  return mergeChains(perPlant, dayKey);
+}
+
+/** Sums a set of chains process-by-process into one chain. */
+export function mergeChains(
+  chains: ProcessDayMetrics[][],
+  dayKey: string,
+): ProcessDayMetrics[] {
+  return processSequence().map((def, index) => {
+    const rows = chains.map((c) => c[index]).filter(Boolean);
+    const input = sum(rows, (r) => r.input);
+    const produced = sum(rows, (r) => r.produced);
+    const good = sum(rows, (r) => r.good);
+    const capacity = sum(rows, (r) => r.capacity);
+
+    return {
+      processId: def.id,
+      plantId: "all",
+      dayKey,
+      input,
+      produced,
+      good,
+      rejected: produced - good,
+      ftt: produced > 0 ? good / produced : 0,
+      // Roll up OEE by production weight, not a flat mean — a plant that built
+      // nothing today must not drag the group average.
+      oee: weightedMean(rows, (r) => r.oee, (r) => r.produced),
+      capacity,
+      utilisation: capacity > 0 ? produced / capacity : 0,
+      starvedBy: sum(rows, (r) => r.starvedBy),
+    };
+  });
+}
+
+export interface ChainSummary {
+  chain: ProcessDayMetrics[];
+  /** The process constraining the chain over the whole window. */
+  bottleneck: ProcessDayMetrics;
+  bottleneckDef: ProcessDef;
+  /** Vehicle sets the chain delivered end to end. */
+  vehiclesBuilt: number;
+}
+
+/**
+ * Averages a set of daily chains into one, and identifies the constraint.
+ *
+ * The constraint is the process running closest to its own capacity — the one
+ * with nowhere left to go. That is a different question from "which process
+ * made the fewest vehicles", which just re-reads the end of the line.
+ */
+export function summariseChain(dailyChains: ProcessDayMetrics[][]): ChainSummary {
+  const days = Math.max(1, dailyChains.length);
+
+  const chain = processSequence().map((def, index) => {
+    const rows = dailyChains.map((c) => c[index]).filter(Boolean);
+    const produced = sum(rows, (r) => r.produced) / days;
+    const good = sum(rows, (r) => r.good) / days;
+    const capacity = sum(rows, (r) => r.capacity) / days;
+
+    return {
+      processId: def.id,
+      plantId: rows[0]?.plantId ?? "all",
+      dayKey: "avg",
+      input: sum(rows, (r) => r.input) / days,
+      produced,
+      good,
+      rejected: produced - good,
+      ftt: produced > 0 ? good / produced : 0,
+      oee: weightedMean(rows, (r) => r.oee, (r) => r.produced),
+      capacity,
+      utilisation: capacity > 0 ? produced / capacity : 0,
+      starvedBy: sum(rows, (r) => r.starvedBy) / days,
+    };
+  });
+
+  const bottleneck = chain.reduce((worst, p) =>
+    p.utilisation > worst.utilisation ? p : worst,
+  );
+
+  const terminal = chain[chain.length - 1];
+
+  return {
+    chain,
+    bottleneck,
+    bottleneckDef: PROCESS_BY_ID.get(bottleneck.processId)!,
+    vehiclesBuilt: terminal.good,
+  };
+}
+
+/** Per-factory view of a single process across a window. */
+export interface ProcessFactoryRow {
+  plantId: string;
+  plantName: string;
+  city: string;
+  produced: number;
+  good: number;
+  rejected: number;
+  ftt: number;
+  oee: number;
+  capacity: number;
+  utilisation: number;
+  avgPerDay: number;
+}
+
+export function processByFactory(
+  processId: string,
+  dayKeys: string[],
+  shifts: ShiftId[],
+  plantIds: string[] = PLANTS.map((p) => p.id),
+): ProcessFactoryRow[] {
+  const index = processSequence().findIndex((p) => p.id === processId);
+  if (index < 0) return [];
+
+  const days = Math.max(1, dayKeys.length);
+
+  return plantIds.map((plantId) => {
+    const plant = PLANTS.find((p) => p.id === plantId)!;
+    const rows = dayKeys.map(
+      (dayKey) => processChainForPlantDay(plantId, dayKey, shifts)[index],
+    );
+
+    const produced = sum(rows, (r) => r.produced);
+    const good = sum(rows, (r) => r.good);
+    const capacity = sum(rows, (r) => r.capacity);
+
+    return {
+      plantId,
+      plantName: plant.name,
+      city: plant.city,
+      produced,
+      good,
+      rejected: produced - good,
+      ftt: produced > 0 ? good / produced : 0,
+      oee: weightedMean(rows, (r) => r.oee, (r) => r.produced),
+      capacity,
+      utilisation: capacity > 0 ? produced / capacity : 0,
+      avgPerDay: produced / days,
+    };
+  });
+}
+
+/** Sanity guard used by tests: the catalog must describe a solvable chain. */
+export function processCount(): number {
+  return PROCESSES.length;
+}
+
+// ---------------------------------------------------------------------------
+// helpers
+// ---------------------------------------------------------------------------
+
+function sum<T>(items: T[], sel: (t: T) => number): number {
+  return items.reduce((acc, t) => acc + sel(t), 0);
+}
+
+function weightedMean<T>(items: T[], sel: (t: T) => number, weight: (t: T) => number): number {
+  const w = sum(items, weight);
+  if (w <= 0) return items.length > 0 ? sum(items, sel) / items.length : 0;
+  return sum(items, (t) => sel(t) * weight(t)) / w;
+}
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, v));
+}

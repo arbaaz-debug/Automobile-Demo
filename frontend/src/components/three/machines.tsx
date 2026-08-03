@@ -19,7 +19,7 @@ export const STEEL = "#99a3b0";
 export const STEEL_DARK = "#78828f";
 export const STEEL_LIGHT = "#c2cad4";
 export const PANEL_STEEL = "#8e99a6";
-export const FLOOR = "#aab3be";
+export const FLOOR = "#1d3a66";
 
 export interface MachineProps {
   /** Strokes per minute — drives the reciprocation rate. */

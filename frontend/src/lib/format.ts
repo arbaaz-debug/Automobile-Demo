@@ -22,9 +22,15 @@ export function fmtCompact(value: number): string {
   return int.format(Math.round(value));
 }
 
-/** 0..1 -> "84.2%" */
-export function fmtPct(ratio: number, digits: 0 | 1 = 1): string {
-  return `${(digits === 1 ? one : int).format(ratio * 100)}%`;
+/**
+ * 0..1 -> "84.2%".
+ *
+ * Two decimals exist for the small rates — a press-shop reject rate lives
+ * around 1.8%, where "2%" throws away the part that moves.
+ */
+export function fmtPct(ratio: number, digits: 0 | 1 | 2 = 1): string {
+  const fmt = digits === 2 ? two : digits === 1 ? one : int;
+  return `${fmt.format(ratio * 100)}%`;
 }
 
 /** Already-scaled percentage value -> "84.2%" */

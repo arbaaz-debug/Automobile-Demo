@@ -1,8 +1,9 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   BatteryCharging,
@@ -16,6 +17,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/auth/AuthProvider";
 import { useNow, useSnapshot } from "@/hooks/useSnapshot";
+import { useFilterState } from "@/hooks/useOverview";
+import { plantCrumbs, routes } from "@/lib/routes";
 import { AppShell, type WindowControls } from "@/components/layout/AppShell";
 import { PageSkeleton } from "@/components/layout/PageSkeleton";
 import { Card, CardHeader, SectionLabel } from "@/components/ui/Card";
@@ -33,9 +36,9 @@ import { DowntimeCard } from "@/components/plant/DowntimeCard";
 import { SKU_BY_ID } from "@/domain/stamping/catalog";
 import { bandForFtt, bandForOee } from "@/domain/stamping/oee";
 import { energyCostInr, shiftsInWindow, toDayKey } from "@/domain/stamping/simulator";
-import type { ShiftId } from "@/domain/stamping/types";
+
 import { BAND_COLOR, SERIES, STATUS, STATUS_TEXT } from "@/lib/theme";
-import { cn, fmtDec, fmtEnergy, fmtInr, fmtInt, fmtPct, todayIso } from "@/lib/format";
+import { cn, fmtDec, fmtEnergy, fmtInr, fmtInt, fmtPct } from "@/lib/format";
 
 // The scene mounts a WebGL canvas, so it is client-only and code-split away
 // from the initial page payload.
@@ -51,8 +54,23 @@ const PressLineScene = dynamic(
 
 export function PlantView({ plantId }: { plantId: string }) {
   const { ready } = useAuth();
-  const [dateIso, setDateIso] = useState(todayIso);
-  const [shiftId, setShiftId] = useState<ShiftId | "all">("all");
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const push = useCallback(
+    (next: URLSearchParams) => {
+      const q = next.toString();
+      router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+    },
+    [router, pathname],
+  );
+
+  // Shares the portal's filter state, so the date and shift you were looking at
+  // on the overview follow you into a factory instead of resetting.
+  const filters = useFilterState(searchParams, push);
+  const { dateIso, shiftId } = filters;
+
   const [lineId, setLineId] = useState<string | null>(null);
   const [stationId, setStationId] = useState<string | null>(null);
 
@@ -84,7 +102,18 @@ export function PlantView({ plantId }: { plantId: string }) {
     );
   }, [activeLine, stationId]);
 
-  const controls: WindowControls = { dateIso, shiftId, setDateIso, setShiftId };
+  const controls: WindowControls = {
+    dateIso,
+    shiftId,
+    rangeId: filters.rangeId,
+    plantId: filters.plantId,
+    setDateIso: filters.setDateIso,
+    setShiftId: filters.setShiftId,
+    setRangeId: filters.setRangeId,
+    setPlantId: filters.setPlantId,
+  };
+
+  const search = searchParams?.toString() ?? "";
 
   if (!ready) return <PageSkeleton />;
 
@@ -95,6 +124,11 @@ export function PlantView({ plantId }: { plantId: string }) {
       updatedAt={updatedAt}
       onRefresh={refresh}
       loading={loading}
+      crumbs={plantCrumbs(plantId, search)}
+      search={search}
+      /* This page is one factory by definition — a factory picker here would
+         contradict the route rather than filter it. */
+      showFactoryFilter={false}
     >
       {!snapshot || !plant || !activeLine ? (
         <PageSkeleton inline />
@@ -103,11 +137,11 @@ export function PlantView({ plantId }: { plantId: string }) {
           {/* Plant header */}
           <div className="mb-4">
             <Link
-              href="/"
+              href={routes.overview(search)}
               className="inline-flex items-center gap-1 text-[11px] text-[var(--text-muted)] transition hover:text-[var(--text-primary)]"
             >
               <ArrowLeft size={12} />
-              All plants
+              Pan-India overview
             </Link>
             <div className="mt-1.5 flex flex-wrap items-end justify-between gap-3">
               <div>

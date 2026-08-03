@@ -3,19 +3,26 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { Activity, Factory, RefreshCw, Radio, Database } from "lucide-react";
+import { Activity, Factory, RefreshCw, Radio, Database, ChevronDown } from "lucide-react";
 import { PLANTS, SHIFTS } from "@/domain/stamping/catalog";
 import type { ShiftId } from "@/domain/stamping/types";
 import type { SourceDetail } from "@/services/data/provider";
+import { RANGES, type RangeId } from "@/services/data/overview";
 import { useAuth } from "@/auth/AuthProvider";
 import { cn, fmtTime } from "@/lib/format";
 import { STATUS } from "@/lib/theme";
+import { routes, type Crumb } from "@/lib/routes";
+import { Breadcrumbs } from "./Breadcrumbs";
 
 export interface WindowControls {
   dateIso: string;
   shiftId: ShiftId | "all";
+  rangeId: RangeId;
+  plantId: string;
   setDateIso: (v: string) => void;
   setShiftId: (v: ShiftId | "all") => void;
+  setRangeId: (v: RangeId) => void;
+  setPlantId: (v: string) => void;
 }
 
 export function AppShell({
@@ -25,6 +32,10 @@ export function AppShell({
   updatedAt,
   onRefresh,
   loading,
+  crumbs,
+  search,
+  /** Hidden on pages scoped to one factory, where the picker would contradict the page. */
+  showFactoryFilter = true,
 }: {
   children: ReactNode;
   controls: WindowControls;
@@ -32,6 +43,9 @@ export function AppShell({
   updatedAt: number | null;
   onRefresh: () => void;
   loading: boolean;
+  crumbs: Crumb[];
+  search?: string | null;
+  showFactoryFilter?: boolean;
 }) {
   return (
     <div className="flex min-h-screen flex-col bg-[var(--page)]">
@@ -41,8 +55,13 @@ export function AppShell({
         updatedAt={updatedAt}
         onRefresh={onRefresh}
         loading={loading}
+        search={search}
+        showFactoryFilter={showFactoryFilter}
       />
-      <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5 lg:px-6">{children}</main>
+      <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5 lg:px-6">
+        <Breadcrumbs crumbs={crumbs} />
+        {children}
+      </main>
       <Footer />
     </div>
   );
@@ -54,12 +73,16 @@ function TopBar({
   updatedAt,
   onRefresh,
   loading,
+  search,
+  showFactoryFilter,
 }: {
   controls: WindowControls;
   source: SourceDetail | null;
   updatedAt: number | null;
   onRefresh: () => void;
   loading: boolean;
+  search?: string | null;
+  showFactoryFilter: boolean;
 }) {
   const pathname = usePathname();
   const { session } = useAuth();
@@ -67,36 +90,41 @@ function TopBar({
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--surface-1)]/95 backdrop-blur">
       <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 lg:px-6">
-        <Link href="/" className="flex shrink-0 items-center gap-2.5">
-          <span className="grid size-8 place-items-center rounded bg-[var(--series-1)]/15 text-[var(--series-1)]">
+        <Link href={routes.overview(search)} className="flex shrink-0 items-center gap-2.5">
+          <span className="grid size-8 place-items-center rounded bg-[var(--series-1)]/20 text-[var(--series-1)]">
             <Factory size={17} />
           </span>
           <span className="leading-tight">
             <span className="block text-[13px] font-semibold tracking-tight">
-              Press Shop Intelligence
+              Mahindra Manufacturing Intelligence
             </span>
             <span className="block text-[10px] text-[var(--text-muted)]">
-              Thar body panels · Steel stamping
+              Thar · Pan-India operations
             </span>
           </span>
         </Link>
 
-        <nav className="flex items-center gap-1" aria-label="Plants">
-          <NavLink href="/" active={pathname === "/"}>
+        <nav className="flex items-center gap-1" aria-label="Sections">
+          <NavLink href={routes.overview(search)} active={pathname === "/"}>
             Overview
           </NavLink>
-          {PLANTS.map((p) => (
-            <NavLink
-              key={p.id}
-              href={`/plant/${p.id}`}
-              active={pathname?.startsWith(`/plant/${p.id}`) ?? false}
-            >
-              {p.city.split(",")[0]}
-            </NavLink>
-          ))}
+          <NavLink
+            href={routes.process("press-shop", search)}
+            active={pathname?.startsWith("/process") ?? false}
+          >
+            Processes
+          </NavLink>
+          <NavLink
+            href={routes.plant(PLANTS[0].id, search)}
+            active={pathname?.startsWith("/plant") ?? false}
+          >
+            Factories
+          </NavLink>
         </nav>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          {showFactoryFilter ? <FactoryPicker controls={controls} /> : null}
+          <RangePicker controls={controls} />
           <ShiftPicker controls={controls} />
           <DatePicker controls={controls} />
           <SourceBadge source={source} />
@@ -143,9 +171,71 @@ function NavLink({
   );
 }
 
+/**
+ * Factory scope for every metric on the page.
+ *
+ * A native select rather than a custom menu: it is one dimension with six
+ * options, it must work on a shop-floor tablet, and the platform control
+ * already handles keyboard, screen readers and small screens correctly.
+ */
+function FactoryPicker({ controls }: { controls: WindowControls }) {
+  return (
+    <label className="relative flex items-center">
+      <span className="sr-only">Factory</span>
+      <select
+        value={controls.plantId}
+        onChange={(e) => controls.setPlantId(e.target.value)}
+        aria-label="Factory"
+        className="appearance-none rounded border border-[var(--border)] bg-[var(--surface-2)] py-1 pl-2 pr-6 text-[11px] font-medium text-[var(--text-secondary)] outline-none transition hover:bg-[var(--surface-3)]"
+      >
+        <option value="all">All factories · India</option>
+        {PLANTS.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.city}
+          </option>
+        ))}
+      </select>
+      <ChevronDown
+        size={12}
+        aria-hidden
+        className="pointer-events-none absolute right-1.5 text-[var(--text-muted)]"
+      />
+    </label>
+  );
+}
+
+/** Time scope: a production day, or a trailing multi-day window. */
+function RangePicker({ controls }: { controls: WindowControls }) {
+  return (
+    <div
+      className="flex items-center rounded border border-[var(--border)] p-0.5"
+      role="group"
+      aria-label="Time range"
+    >
+      {RANGES.map((r) => (
+        <button
+          key={r.id}
+          type="button"
+          onClick={() => controls.setRangeId(r.id)}
+          title={r.label}
+          aria-pressed={controls.rangeId === r.id}
+          className={cn(
+            "rounded px-2 py-1 text-[11px] font-medium transition",
+            controls.rangeId === r.id
+              ? "bg-[var(--series-1)] text-white"
+              : "text-[var(--text-muted)] hover:bg-[var(--surface-3)]",
+          )}
+        >
+          {r.shortLabel}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ShiftPicker({ controls }: { controls: WindowControls }) {
   const options: { id: ShiftId | "all"; label: string; hint: string }[] = [
-    { id: "all", label: "Day", hint: "All shifts" },
+    { id: "all", label: "All", hint: "All shifts" },
     ...SHIFTS.map((s) => ({
       id: s.id as ShiftId,
       label: s.id,
@@ -188,7 +278,7 @@ function DatePicker({ controls }: { controls: WindowControls }) {
         type="date"
         value={controls.dateIso}
         onChange={(e) => controls.setDateIso(e.target.value)}
-        className="bg-transparent text-[11px] text-[var(--text-secondary)] outline-none [color-scheme:light]"
+        className="bg-transparent text-[11px] text-[var(--text-secondary)] outline-none [color-scheme:dark]"
       />
     </label>
   );
@@ -217,8 +307,8 @@ export function SourceBadge({ source }: { source: SourceDetail | null }) {
         live
           ? "Values are read from IOsense device telemetry"
           : source.error
-            ? `Falling back to the press-shop model: ${source.error}`
-            : "No IOsense device map configured — values come from the deterministic press-shop model"
+            ? `Falling back to the manufacturing model: ${source.error}`
+            : "No IOsense device map configured — values come from the deterministic manufacturing model"
       }
     >
       {live ? <Radio size={11} /> : <Database size={11} />}
@@ -240,7 +330,7 @@ function UserChip({ name }: { name: string }) {
       className="flex items-center gap-1.5 rounded border border-[var(--border)] px-2 py-1 text-[11px] text-[var(--text-secondary)]"
       title={`Viewing as ${name}`}
     >
-      <span className="grid size-4 place-items-center rounded-full bg-[var(--series-1)]/25 text-[9px] font-semibold text-[var(--series-1)]">
+      <span className="grid size-4 place-items-center rounded-full bg-[var(--series-1)]/30 text-[9px] font-semibold text-[var(--series-1)]">
         {name.slice(0, 1).toUpperCase()}
       </span>
       <span className="max-w-[130px] truncate">{name}</span>
@@ -254,9 +344,9 @@ function Footer() {
       <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-[var(--text-muted)]">
         <span className="inline-flex items-center gap-1.5">
           <Activity size={11} />
-          Press Shop Intelligence Portal
+          Mahindra Manufacturing Intelligence Portal
         </span>
-        <span>Mahindra Thar · Bonnet, door and side body panels</span>
+        <span>Mahindra Thar · Pan-India vehicle manufacturing</span>
         <span className="ml-auto">
           OEE per SEMI E79 · Vibration limits per ISO 10816 · Grid factor CEA 2023-24
         </span>

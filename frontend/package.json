@@ -3,13 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3200",
+    "dev": "next dev --port ${DEV_PORT:-3201}",
     "build": "next build",
-    "start": "node scripts/serve-static.mjs out 3200",
+    "start": "node scripts/serve-static.mjs out ${PORT:-3200}",
     "lint": "eslint src --ext .ts,.tsx",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "serve": "node scripts/serve-static.mjs out 3200"
+    "serve": "node scripts/serve-static.mjs out ${PORT:-3200}"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",

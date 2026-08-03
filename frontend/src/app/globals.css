@@ -1,67 +1,77 @@
 @import "tailwindcss";
 
 /*
- * Press-shop light theme.
+ * Press-shop dark theme, built on the requested #244271 page navy.
  *
- * Palette provenance: categorical slots are the validated data-viz light steps,
- * re-validated against this card surface (#ffffff) with
- * scripts/validate_palette.js — lightness band, chroma floor, CVD separation and
- * normal-vision floor all pass for slots 1-4 adjacent and slots 1-3 all-pairs.
+ * Surface order is the one thing worth explaining. The page is the *lightest*
+ * plane here and cards sit below it, which inverts the usual elevation rule.
+ * That is forced by contrast arithmetic, not taste: on a card lightened past
+ * the page navy the categorical blue drops to 2.2:1, well under the 3:1 a data
+ * mark needs. Recessing the card to #1b3358 puts every series step back over
+ * 3:1 while keeping #244271 as the dominant field. The cards read as inset
+ * wells, and the data stays legible.
  *
- * Two slots (aqua, yellow) sit below 3:1 against white, which the validator
- * flags as needing relief. That obligation is met: every chart carries visible
- * direct labels and a table view, so no series is identified by colour alone.
+ * Palette provenance: categorical slots are the validated data-viz dark steps,
+ * re-validated against this card surface with scripts/validate_palette.js —
+ * lightness band, chroma floor, adjacent CVD separation, normal-vision floor
+ * and 3:1 contrast all PASS for the six slots, and the first three also pass
+ * all-pairs for scatter/matrix use.
  *
- * Status colours are fixed and never themed; warning and serious are sub-3:1 on
- * a light surface by design, which is why every status indicator ships a glyph
- * and a text label alongside the colour.
+ * Two deviations from the reference dark column, both forced by this surface:
+ *   - status critical uses #e66767, not #d03b3b. The latter measures 2.63:1 on
+ *     navy — a rejection count is the last number that may be hard to read.
+ *   - the sequential ramp stops at #256abf (2.34:1); the darker 550/600 steps
+ *     fall under the 2:1 ordinal floor against navy.
+ *
+ * Status colours are never themed and always ship with a glyph and a label, so
+ * no state is carried by hue alone.
  */
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 
-  /* Surfaces */
-  --page: #f4f5f7;
-  --surface-1: #ffffff;
-  --surface-2: #f7f8fa;
-  --surface-3: #eceef1;
-  --surface-raised: #ffffff;
+  /* Surfaces — page is the light plane, cards recess below it (see above). */
+  --page: #244271;
+  --surface-1: #1b3358;
+  --surface-2: #16294a;
+  --surface-3: #2c5085;
+  --surface-raised: #21406e;
 
-  /* Ink */
-  --text-primary: #0b0b0b;
-  --text-secondary: #52514e;
-  --text-muted: #767570;
+  /* Ink — cool tints, so text sits in the same hue family as the field. */
+  --text-primary: #ffffff;
+  --text-secondary: #c6d5ea;
+  --text-muted: #93a8c6;
 
   /* Lines */
-  --grid: #e6e8ec;
-  --axis: #c3c2b7;
-  --border: rgba(11, 11, 11, 0.11);
-  --border-strong: rgba(11, 11, 11, 0.2);
+  --grid: #2a4a7d;
+  --axis: #3d6199;
+  --border: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.22);
 
-  /* Categorical series (validated light steps) */
-  --series-1: #2a78d6; /* blue    */
-  --series-2: #eb6834; /* orange  */
-  --series-3: #1baf7a; /* aqua    */
-  --series-4: #eda100; /* yellow  */
-  --series-5: #e87ba4; /* magenta */
-  --series-6: #4a3aa7; /* violet  */
+  /* Categorical series (validated dark steps on --surface-1) */
+  --series-1: #3987e5; /* blue    */
+  --series-2: #d95926; /* orange  */
+  --series-3: #199e70; /* aqua    */
+  --series-4: #c98500; /* yellow  */
+  --series-5: #d55181; /* magenta */
+  --series-6: #9085e9; /* violet  */
 
   /* Status — fixed, never themed. Always paired with an icon + label. */
   --status-good: #0ca30c;
   --status-warning: #fab219;
   --status-serious: #ec835a;
-  --status-critical: #d03b3b;
-  --status-neutral: #6b7280;
+  --status-critical: #e66767;
+  --status-neutral: #93a8c6;
 
-  /* Success text needs a darker step than the status swatch on light. */
-  --status-good-text: #006300;
+  /* On navy the status swatches are already bright enough to set type in. */
+  --status-good-text: #2fbf2f;
 
-  /* Sequential blue ramp for magnitude encodings */
+  /* Sequential blue ramp for magnitude encodings, light -> dark */
   --seq-100: #cde2fb;
-  --seq-250: #86b6ef;
+  --seq-200: #9ec5f4;
+  --seq-300: #6da7ec;
   --seq-400: #3987e5;
-  --seq-550: #1c5cab;
-  --seq-700: #0d366b;
+  --seq-500: #256abf;
 }
 
 @theme inline {
@@ -110,14 +120,14 @@ body {
 /* Recessive scrollbars — a dashboard has a lot of them. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #c9ccd2 transparent;
+  scrollbar-color: #3d6199 transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #c9ccd2;
+  background: #3d6199;
   border-radius: 4px;
 }
 *::-webkit-scrollbar-track {
@@ -151,9 +161,9 @@ body {
 .skeleton {
   background: linear-gradient(
     90deg,
-    var(--surface-3) 0px,
-    var(--surface-2) 200px,
-    var(--surface-3) 400px
+    var(--surface-2) 0px,
+    var(--surface-3) 200px,
+    var(--surface-2) 400px
   );
   background-size: 800px 100%;
   animation: shimmer 1.6s linear infinite;

@@ -456,6 +456,69 @@ const CHAKAN_LINES: LineSeed[] = [
   },
 ];
 
+const KANDIVALI_LINES: LineSeed[] = [
+  {
+    id: "KDV-BL3",
+    name: "Blanking Line BL-3",
+    type: "blanking",
+    headlineTonnage: 500,
+    skuIds: ["THAR-BNT-INR", "THAR-DR-FR-LH", "THAR-DR-FR-RH"],
+    commissionedYear: 2011,
+    tonnageScale: 0.79,
+  },
+  {
+    id: "KDV-PL5",
+    name: "Press Line PL-5",
+    type: "tandem",
+    headlineTonnage: 1000,
+    skuIds: ["THAR-BNT-INR", "THAR-DR-FR-LH"],
+    commissionedYear: 2009,
+    tonnageScale: 0.5,
+  },
+];
+
+const HARIDWAR_LINES: LineSeed[] = [
+  {
+    id: "HRD-BL4",
+    name: "Blanking Line BL-4",
+    type: "blanking",
+    headlineTonnage: 630,
+    skuIds: ["THAR-SDB-LH", "THAR-SDB-RH"],
+    commissionedYear: 2020,
+    tonnageScale: 1,
+  },
+  {
+    id: "HRD-PL6",
+    name: "Press Line PL-6 (Servo Transfer)",
+    type: "transfer",
+    headlineTonnage: 2000,
+    skuIds: ["THAR-SDB-LH", "THAR-SDB-RH"],
+    commissionedYear: 2022,
+    tonnageScale: 1,
+  },
+];
+
+const ZAHEERABAD_LINES: LineSeed[] = [
+  {
+    id: "ZHB-BL5",
+    name: "Blanking Line BL-5",
+    type: "blanking",
+    headlineTonnage: 630,
+    skuIds: ["THAR-BNT-OTR", "THAR-SDB-LH"],
+    commissionedYear: 2014,
+    tonnageScale: 1,
+  },
+  {
+    id: "ZHB-PL7",
+    name: "Press Line PL-7",
+    type: "tandem",
+    headlineTonnage: 1600,
+    skuIds: ["THAR-BNT-OTR", "THAR-SDB-LH"],
+    commissionedYear: 2013,
+    tonnageScale: 0.8,
+  },
+];
+
 function buildStations(line: LineSeed): StationDef[] {
   const template = line.type === "blanking" ? BLANKING_TEMPLATE : PRESS_TEMPLATE;
   return template.map((t) => ({
@@ -492,9 +555,24 @@ function buildLines(plantId: string, seeds: LineSeed[]) {
 
 const nashik = buildLines("nashik", NASHIK_LINES);
 const chakan = buildLines("chakan", CHAKAN_LINES);
+const kandivali = buildLines("kandivali", KANDIVALI_LINES);
+const haridwar = buildLines("haridwar", HARIDWAR_LINES);
+const zaheerabad = buildLines("zaheerabad", ZAHEERABAD_LINES);
 
-export const LINES: LineDef[] = [...nashik.lines, ...chakan.lines];
-export const STATIONS: StationDef[] = [...nashik.stations, ...chakan.stations];
+export const LINES: LineDef[] = [
+  ...nashik.lines,
+  ...chakan.lines,
+  ...kandivali.lines,
+  ...haridwar.lines,
+  ...zaheerabad.lines,
+];
+export const STATIONS: StationDef[] = [
+  ...nashik.stations,
+  ...chakan.stations,
+  ...kandivali.stations,
+  ...haridwar.stations,
+  ...zaheerabad.stations,
+];
 
 export const LINE_BY_ID = new Map(LINES.map((l) => [l.id, l]));
 export const STATION_BY_ID = new Map(STATIONS.map((s) => [s.id, s]));
@@ -521,6 +599,39 @@ export const PLANTS: PlantDef[] = [
     lineIds: CHAKAN_LINES.map((l) => l.id),
     pressShopAreaM2: 31200,
     contractDemandKva: 12800,
+  },
+  {
+    id: "kandivali",
+    name: "Mahindra Kandivali Plant",
+    city: "Kandivali, Mumbai",
+    state: "Maharashtra",
+    lat: 19.2094,
+    lng: 72.8526,
+    lineIds: KANDIVALI_LINES.map((l) => l.id),
+    pressShopAreaM2: 16400,
+    contractDemandKva: 6200,
+  },
+  {
+    id: "haridwar",
+    name: "Mahindra Haridwar Plant",
+    city: "Haridwar",
+    state: "Uttarakhand",
+    lat: 29.9457,
+    lng: 78.1642,
+    lineIds: HARIDWAR_LINES.map((l) => l.id),
+    pressShopAreaM2: 21800,
+    contractDemandKva: 8600,
+  },
+  {
+    id: "zaheerabad",
+    name: "Mahindra Zaheerabad Plant",
+    city: "Zaheerabad",
+    state: "Telangana",
+    lat: 17.6816,
+    lng: 77.6094,
+    lineIds: ZAHEERABAD_LINES.map((l) => l.id),
+    pressShopAreaM2: 19600,
+    contractDemandKva: 7400,
   },
 ];
 

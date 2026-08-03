@@ -3,77 +3,84 @@
  *
  * Recharts and three.js cannot read CSS custom properties, so the same hex
  * values live here. These MUST stay in sync with globals.css — the values are
- * the validated data-viz palette steps for the #ffffff light card surface.
+ * the validated data-viz dark steps for the #1b3358 navy card surface.
  */
 
 import type { StationStatus } from "@/domain/stamping/types";
 import type { MetricBand } from "@/domain/stamping/oee";
 
 export const COLORS = {
-  page: "#f4f5f7",
-  surface1: "#ffffff",
-  surface2: "#f7f8fa",
-  surface3: "#eceef1",
-  surfaceRaised: "#ffffff",
+  page: "#244271",
+  surface1: "#1b3358",
+  surface2: "#16294a",
+  surface3: "#2c5085",
+  surfaceRaised: "#21406e",
 
-  textPrimary: "#0b0b0b",
-  textSecondary: "#52514e",
-  textMuted: "#767570",
+  textPrimary: "#ffffff",
+  textSecondary: "#c6d5ea",
+  textMuted: "#93a8c6",
 
-  grid: "#e6e8ec",
-  axis: "#c3c2b7",
-  border: "rgba(11,11,11,0.11)",
+  grid: "#2a4a7d",
+  axis: "#3d6199",
+  border: "rgba(255,255,255,0.12)",
 
-  /* Success text needs a darker step than the status swatch on light. */
-  goodText: "#006300",
+  /* On navy the success swatch is already bright enough to set type in. */
+  goodText: "#2fbf2f",
 } as const;
 
 /** Categorical slots, assigned in fixed order and never cycled. */
 export const SERIES = [
-  "#2a78d6", // 1 blue
-  "#eb6834", // 2 orange
-  "#1baf7a", // 3 aqua
-  "#eda100", // 4 yellow
-  "#e87ba4", // 5 magenta
-  "#4a3aa7", // 6 violet
+  "#3987e5", // 1 blue
+  "#d95926", // 2 orange
+  "#199e70", // 3 aqua
+  "#c98500", // 4 yellow
+  "#d55181", // 5 magenta
+  "#9085e9", // 6 violet
 ] as const;
 
-/** Sequential blue ramp — magnitude only, never identity. */
+/**
+ * Sequential blue ramp — magnitude only, never identity.
+ *
+ * Stops at #256abf: the darker 550/600 steps fall under the 2:1 ordinal floor
+ * against this navy surface, where on a near-black surface they would pass.
+ */
 export const SEQUENTIAL = [
-  "#86b6ef",
-  "#5598e7",
+  "#cde2fb",
+  "#9ec5f4",
+  "#6da7ec",
   "#3987e5",
   "#256abf",
-  "#1c5cab",
-  "#0d366b",
 ] as const;
 
 /**
  * Status swatches — fixed, never themed. Use for fills, dots, beacons and
- * borders, where there is no contrast requirement against the text scale.
+ * borders.
+ *
+ * `critical` is the dark red categorical step rather than the reference status
+ * red, which measures 2.63:1 on navy — under the 3:1 a mark needs, and a
+ * rejection count is the last number that should be hard to read.
  */
 export const STATUS = {
   good: "#0ca30c",
   warning: "#fab219",
   serious: "#ec835a",
-  critical: "#d03b3b",
-  neutral: "#6b7280",
+  critical: "#e66767",
+  neutral: "#93a8c6",
 } as const;
 
 /**
  * Text-safe steps of the same four hues.
  *
- * On a light surface the status swatches are far too light to set type in —
- * warning measures 1.83:1 and serious 2.64:1 against white. These steps all
- * clear 4.5:1, so any status word, delta or alert line uses these, and the
- * swatch above is reserved for the shape beside it.
+ * On this navy surface all four status swatches already clear 3:1, so unlike
+ * the light theme these are only lightly brightened for small type rather than
+ * being a separate darker scale.
  */
 export const STATUS_TEXT = {
-  good: "#0a7d0a",
-  warning: "#8a6000",
-  serious: "#9c4a26",
-  critical: "#c22e2e",
-  neutral: "#5c626b",
+  good: "#2fbf2f",
+  warning: "#fab219",
+  serious: "#f09b78",
+  critical: "#ef8585",
+  neutral: "#a9bbd4",
 } as const;
 
 /**
@@ -122,15 +129,11 @@ export const STATUS_STYLE: Record<
   },
 };
 
-/**
- * Band colours are used as *text* as often as swatches, so the good and
- * excellent bands take darker steps than their status/series equivalents —
- * #0ca30c and the aqua slot are both too light to read as small type on white.
- */
+/** Band colours, used as text as often as swatches. */
 export const BAND_COLOR: Record<MetricBand, string> = {
-  excellent: "#0a7d0a",
-  good: "#12855e",
-  fair: "#a06a00",
+  excellent: "#2fbf2f",
+  good: "#25b98a",
+  fair: "#e0a52a",
   poor: STATUS.critical,
 };
 

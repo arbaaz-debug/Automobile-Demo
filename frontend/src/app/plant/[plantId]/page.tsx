@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { PLANTS, PLANT_BY_ID } from "@/domain/stamping/catalog";
+import { PageSkeleton } from "@/components/layout/PageSkeleton";
 import { PlantView } from "./PlantView";
 
 /**
@@ -43,5 +45,11 @@ export default async function PlantPage({
   const { plantId } = await params;
   if (!PLANT_BY_ID.has(plantId)) notFound();
 
-  return <PlantView plantId={plantId} />;
+  // The filters live in the query string, and `useSearchParams` forces the
+  // client tree up to the nearest boundary to render on the client.
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <PlantView plantId={plantId} />
+    </Suspense>
+  );
 }

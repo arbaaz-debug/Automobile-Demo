@@ -67,8 +67,8 @@ export function PressLineScene({
         }}
         gl={{ antialias: true }}
       >
-        <color attach="background" args={["#f3f6f9"]} />
-        <fog attach="fog" args={["#f3f6f9", layout.length * 1.15, layout.length * 2.6]} />
+        <color attach="background" args={["#16294a"]} />
+        <fog attach="fog" args={["#16294a", layout.length * 1.15, layout.length * 2.6]} />
 
         <Suspense fallback={null}>
           <Lighting length={layout.length} />
@@ -88,14 +88,19 @@ export function PressLineScene({
 
           <PanelFlow layout={layout.items} lineStatus={line.status} />
 
+          {/* Contact shadows read as grime on a dark floor, so they are much
+              lighter here than they would be on a pale shop floor. */}
           <ContactShadows
             position={[0, 0.03, 0]}
-            opacity={0.5}
+            opacity={0.28}
             scale={layout.length * 1.4}
             blur={2.6}
             far={10}
+            color="#000814"
           />
-          <Environment preset="city" environmentIntensity={0.5} />
+          {/* "warehouse" over "city": an interior IBL, so the machines pick up
+              the reflections of a lit hall rather than a bright open sky. */}
+          <Environment preset="warehouse" environmentIntensity={0.42} />
         </Suspense>
 
         <OrbitControls
@@ -117,8 +122,8 @@ function Lighting({ length }: { length: number }) {
 
   return (
     <>
-      <ambientLight intensity={0.7} />
-      <hemisphereLight args={["#ffffff", "#9aa1ab", 0.75]} />
+      <ambientLight intensity={0.42} />
+      <hemisphereLight args={["#dce8f7", "#1d3a66", 0.55]} />
       <directionalLight
         position={[length * 0.4, length * 0.55, length * 0.42]}
         intensity={1.9}
@@ -132,7 +137,7 @@ function Lighting({ length }: { length: number }) {
       <directionalLight
         position={[-length * 0.5, length * 0.4, -length * 0.35]}
         intensity={0.6}
-        color="#c2d6ea"
+        color="#7fa8dd"
       />
       {Array.from({ length: bays }).map((_, i) => {
         const x = -length / 2 + ((i + 0.5) * length) / bays;
@@ -161,7 +166,7 @@ function Floor({ length }: { length: number }) {
 
       {/* Bay grid, recessive — spatial reference, not decoration. */}
       <gridHelper
-        args={[length * 2.2, Math.round(length / 2), "#a8b0ba", "#b2bac3"]}
+        args={[length * 2.2, Math.round(length / 2), "#33528a", "#2a4a7d"]}
         position={[0, 0.008, 0]}
       />
 
@@ -176,7 +181,7 @@ function Floor({ length }: { length: number }) {
       {/* Material-flow arrow down the centre of the line. */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.018, 0]}>
         <planeGeometry args={[length + 4, 0.08]} />
-        <meshBasicMaterial color="#7c8590" />
+        <meshBasicMaterial color="#4a6fa5" />
       </mesh>
     </group>
   );
@@ -232,7 +237,7 @@ function StationNode({
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]}>
           <ringGeometry args={[2.3, 2.55, 40]} />
           <meshBasicMaterial
-            color={selected ? "#2a78d6" : "#6f7681"}
+            color={selected ? "#3987e5" : "#8fa3c0"}
             transparent
             opacity={selected ? 0.95 : 0.5}
           />
@@ -255,9 +260,9 @@ function StationNode({
             fontWeight: 600,
             letterSpacing: "0.06em",
             whiteSpace: "nowrap",
-            color: selected ? "#ffffff" : "#3d3c39",
-            background: selected ? "rgba(42,120,214,0.94)" : "rgba(255,255,255,0.92)",
-            border: `1px solid ${selected ? "#2a78d6" : "rgba(11,11,11,0.16)"}`,
+            color: selected ? "#ffffff" : "#c6d5ea",
+            background: selected ? "rgba(57,135,229,0.96)" : "rgba(22,41,74,0.92)",
+            border: `1px solid ${selected ? "#3987e5" : "rgba(255,255,255,0.18)"}`,
           }}
         >
           {station.def.opCode}
@@ -272,19 +277,19 @@ function StationNode({
               minWidth: 190,
               padding: "8px 10px",
               borderRadius: 6,
-              background: "rgba(255,255,255,0.97)",
+              background: "rgba(27,51,88,0.97)",
               border: "1px solid rgba(11,11,11,0.16)",
               boxShadow: "0 10px 26px rgba(11,11,11,0.18)",
               fontSize: 11,
               lineHeight: 1.45,
-              color: "#0b0b0b",
+              color: "#ffffff",
               whiteSpace: "nowrap",
             }}
           >
-            <div style={{ fontWeight: 600, marginBottom: 2, color: "#0b0b0b" }}>
+            <div style={{ fontWeight: 600, marginBottom: 2, color: "#ffffff" }}>
               {STATION_KIND_LABEL[station.def.kind]}
             </div>
-            <div style={{ color: "#767570", marginBottom: 5 }}>{station.def.name}</div>
+            <div style={{ color: "#93a8c6", marginBottom: 5 }}>{station.def.name}</div>
             <Row label="Status" value={`${style.glyph} ${style.label}`} color={style.color} />
             <Row label="Rate" value={running ? `${fmtDec(station.spm)} SPM` : "—"} />
             <Row label="Count" value={fmtInt(station.count)} />
@@ -321,8 +326,8 @@ function Row({
 }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", gap: 14 }}>
-      <span style={{ color: "#767570" }}>{label}</span>
-      <span style={{ color: color ?? "#0b0b0b", fontVariantNumeric: "tabular-nums" }}>
+      <span style={{ color: "#93a8c6" }}>{label}</span>
+      <span style={{ color: color ?? "#ffffff", fontVariantNumeric: "tabular-nums" }}>
         {value}
       </span>
     </div>

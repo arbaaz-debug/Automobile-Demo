@@ -138,6 +138,29 @@ Format `<LINE>-<OPCODE>`.
 | `CKN-PL3` | Servo transfer, 2400 T | `OP05`–`OP60` |
 | `CKN-PL4` | Tandem, 1600 T | `OP05`–`OP60` |
 
+**Kandivali**
+
+| Line | Type | Stations |
+|---|---|---|
+| `KDV-BL3` | Blanking, 500 T | `OP00`–`OP03` |
+| `KDV-PL5` | Tandem, 1000 T | `OP05`–`OP60` |
+
+**Haridwar**
+
+| Line | Type | Stations |
+|---|---|---|
+| `HRD-BL4` | Blanking, 630 T | `OP00`–`OP03` |
+| `HRD-PL6` | Servo transfer, 2000 T | `OP05`–`OP60` |
+
+**Zaheerabad**
+
+| Line | Type | Stations |
+|---|---|---|
+| `ZHB-BL5` | Blanking, 630 T | `OP00`–`OP03` |
+| `ZHB-PL7` | Tandem, 1600 T | `OP05`–`OP60` |
+
+Twelve lines, **69 stations** across the five plants.
+
 ### Sensor roles
 
 | Role | Unit | Consumed by |
@@ -195,7 +218,7 @@ press at a time. Roll-ups (line → plant → group) are recomputed from the mer
 station values, never averaged from percentages, so the numbers reconcile.
 
 The `SourceBadge` in the header reports the resolution honestly:
-`IOsense live · 7/33 stations` or `Simulated data`. A connector failure logs and
+`IOsense live · 7/69 stations` or `Simulated data`. A connector failure logs and
 degrades to the model rather than blanking the portal.
 
 ---
@@ -209,5 +232,42 @@ degrades to the model rather than blanking the portal.
 4. For each press, call `getDeviceSpecificMetadata` and note the sensor ids.
 5. Add the station → device entry to `NEXT_PUBLIC_IOSENSE_DEVICE_MAP`.
 6. Reload — the header badge should move from `Simulated data` to
-   `IOsense live · n/33 stations`, and `n` should equal the number of stations
+   `IOsense live · n/69 stations`, and `n` should equal the number of stations
    you bound. If it does not, the browser console names the unknown station ids.
+
+---
+
+## 8. Coverage across the manufacturing chain
+
+The portal now spans the whole vehicle manufacturing chain, but **IOsense
+instrumentation is commissioned for the press shop only**. This table is the
+honest statement of what is wired and what is modelled — the UI says the same
+thing on every uninstrumented process page rather than implying telemetry it
+does not have.
+
+| Process | Route | Data source | Status |
+|---|---|---|---|
+| Press shop (steel stamping) | `/process/press-shop/` | IOsense device map → station telemetry, falling back to the model | ✅ station-level |
+| Body shop | `/process/body-shop/` | Chain model | ⬜ not instrumented |
+| Paint shop | `/process/paint-shop/` | Chain model | ⬜ not instrumented |
+| Frame & chassis line | `/process/frame-chassis/` | Chain model | ⬜ not instrumented |
+| Powertrain dressing | `/process/powertrain/` | Chain model | ⬜ not instrumented |
+| Body-chassis marriage | `/process/marriage/` | Chain model | ⬜ not instrumented |
+| Trim & final assembly | `/process/trim-final/` | Chain model | ⬜ not instrumented |
+| Testing & dispatch | `/process/testing-dispatch/` | Chain model | ⬜ not instrumented |
+
+**No new functionIDs are called for the chain.** Process throughput is solved in
+`src/domain/manufacturing/processMetrics.ts` from the press shop's actual output
+— each process consumes the good output of the processes feeding it, capped by
+its own capacity — so extending coverage is a matter of binding more devices,
+not of adding endpoints.
+
+To commission a downstream process, bind its stations the same way the press
+shop is bound and give the process an instrumented source in `processMetrics`;
+the flow map, the constraint calculation and the per-factory tables all read
+from that one solver and need no further changes.
+
+**Factory scope.** Five plants are in the topology — Nashik, Chakan, Kandivali,
+Haridwar and Zaheerabad — so `findUserDevices` must return devices for each
+tenant you intend to show. A factory with no bindings still renders, from the
+model.

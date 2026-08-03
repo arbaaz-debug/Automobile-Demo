@@ -26,40 +26,34 @@ function watchConsole(page: Page): string[] {
   return errors;
 }
 
-/** Opens the overview and waits for the first snapshot to land. */
-async function openOverview(page: Page) {
-  await page.goto("/");
+/** Opens the pan-India overview and waits for the first roll-up to land. */
+async function openOverview(page: Page, query = "") {
+  await page.goto(`/${query}`);
   await expect(
-    page.getByRole("heading", { name: /Steel stamping · group overview/i }),
+    page.getByRole("heading", { name: /pan-India manufacturing overview/i }),
   ).toBeVisible();
-  await expect(page.getByText("Panels produced")).toBeVisible();
+  await expect(page.getByText("Total production", { exact: true })).toBeVisible();
 }
 
-test.describe("Press Shop Intelligence portal", () => {
-  test("portal opens straight onto the overview, with no sign-in gate", async ({ page }) => {
+test.describe("Mahindra Manufacturing Intelligence portal", () => {
+  test("portal opens straight onto the pan-India overview, with no sign-in gate", async ({
+    page,
+  }) => {
     const errors = watchConsole(page);
 
     await page.goto("/");
-
-    // No redirect anywhere — the shop floor is the landing page.
     await expect(page).toHaveURL(/\/$/);
     await openOverview(page);
 
     // No sign-in surface survives anywhere in the shell.
     await expect(page.getByRole("button", { name: /sign in/i })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /sign out/i })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: /sign in|log ?in/i })).toHaveCount(0);
-    await expect(page.getByText(/password/i)).toHaveCount(0);
 
-    // The removed route is gone, not just unlinked.
-    //
-    // Asserted on content rather than status. The portal is served as a static
-    // export behind `try_files $uri $uri/ /index.html`, so every unknown path
-    // returns 200 with the app shell — a 404 is not something the production
-    // host can produce, and asserting one would only ever pass against a local
-    // Node server that is not what ships.
+    // The removed route is gone, not just unlinked. Asserted on content rather
+    // than status: the portal is served as a static export behind
+    // `try_files $uri $uri/ /index.html`, so an unknown path returns 200 with
+    // the app shell and a 404 is not something the production host can produce.
     await page.goto("/login");
-    await expect(page.getByRole("textbox", { name: /password/i })).toHaveCount(0);
     await expect(page.locator('input[type="password"]')).toHaveCount(0);
     await expect(page.getByRole("button", { name: /sign in|log ?in/i })).toHaveCount(0);
     await page.goto("/");
@@ -67,17 +61,31 @@ test.describe("Press Shop Intelligence portal", () => {
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
 
-  test("overview shows production, quality, rejections, OEE and energy", async ({ page }) => {
+  test("portal renders in dark mode on the specified navy background", async ({ page }) => {
+    await openOverview(page);
+
+    const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    // #244271
+    expect(bg).toBe("rgb(36, 66, 113)");
+
+    const scheme = await page.evaluate(
+      () => getComputedStyle(document.documentElement).colorScheme,
+    );
+    expect(scheme).toContain("dark");
+  });
+
+  test("overview shows production, rejections, quality and per-day average", async ({
+    page,
+  }) => {
     const errors = watchConsole(page);
     await openOverview(page);
 
-    // The five headline measures the overview promises.
     for (const label of [
-      "Panels produced",
-      "First time through",
+      "Total production",
+      "Avg production / day",
       "Total rejections",
+      "First time through",
       "Group OEE",
-      "Energy consumed",
     ]) {
       await expect(page.getByText(label, { exact: true }).first()).toBeVisible();
     }
@@ -85,49 +93,176 @@ test.describe("Press Shop Intelligence portal", () => {
     // Data source is disclosed.
     await expect(page.getByText("Simulated data")).toBeVisible();
 
-    // Both plants are present and clickable.
-    await expect(page.getByRole("link", { name: /Mahindra Nashik Plant/ })).toBeVisible();
-    await expect(page.getByRole("link", { name: /Mahindra Chakan Plant/ })).toBeVisible();
-
-    // Shift-level and SKU-level sections.
-    await expect(page.getByText("OEE factors by shift")).toBeVisible();
-    await expect(page.getByText("Panel SKU performance")).toBeVisible();
-    await expect(page.getByText("Bonnet Outer Panel").first()).toBeVisible();
-
-    // Rejection reasons are named, not just counted.
+    // Trends and the factory comparison are present.
+    await expect(page.getByText("Production trend")).toBeVisible();
+    await expect(page.getByText("Quality & effectiveness")).toBeVisible();
+    await expect(page.getByText("Average daily output by factory")).toBeVisible();
     await expect(page.getByText("Rejection Pareto")).toBeVisible();
 
     await page.screenshot({ path: `${SHOTS}/02-overview.png`, fullPage: true });
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
 
-  test("production figures reconcile across the page", async ({ page }) => {
+  test("every factory in India is listed and totals reconcile", async ({ page }) => {
     await openOverview(page);
 
-    // Group produced must equal the sum of the two plant cards.
-    const group = await readTileValue(page, "Panels produced");
+    const group = await readTileValue(page, "Total production");
 
-    const plantValues = await page
-      .locator("a[href^='/plant/'] >> text=Produced")
-      .locator("xpath=following-sibling::p[1]")
-      .allInnerTexts();
+    // The factory table is the breakdown of the same figure.
+    const table = page.locator("table", { hasText: "Share of India" }).first();
+    const cells = await table.locator("tbody tr td:nth-child(3)").allInnerTexts();
 
-    const plantTotal = plantValues.reduce((a, t) => a + parseIndianInt(t), 0);
-    expect(plantTotal).toBe(group);
+    expect(cells.length).toBe(5);
+    const factoryTotal = cells.reduce((a, t) => a + parseIndianInt(t), 0);
+
+    // Per-factory rows are rounded independently, so allow rounding slack.
+    expect(Math.abs(factoryTotal - group)).toBeLessThanOrEqual(5);
   });
 
-  test("shift filter changes the window and the numbers", async ({ page }) => {
+  test("process map shows both streams and flags steel stamping as the bottleneck", async ({
+    page,
+  }) => {
     const errors = watchConsole(page);
     await openOverview(page);
 
-    const dayTotal = await readTileValue(page, "Panels produced");
-    await expect(page.getByText(/Full day ·/).first()).toBeVisible();
+    const map = page.locator("section", { hasText: "Vehicle manufacturing flow" }).first();
+
+    // Both parallel streams are labelled.
+    await expect(map.getByText("Body stream").first()).toBeVisible();
+    await expect(map.getByText("Chassis stream").first()).toBeVisible();
+
+    // Every process in the attached flow is on the map, in sequence.
+    for (const name of [
+      "Press shop",
+      "Body shop",
+      "Paint shop",
+      "Frame & chassis line",
+      "Powertrain dressing",
+      "Body-chassis marriage",
+      "Trim & final assembly",
+      "Testing & dispatch",
+    ]) {
+      await expect(map.getByText(name, { exact: true }).first()).toBeVisible();
+    }
+
+    // The constraint is named in words, not just by colour.
+    const pressNode = map.getByRole("link", { name: /Press shop/ }).first();
+    await expect(pressNode.getByText(/Bottleneck/)).toBeVisible();
+
+    // And it is called out explicitly alongside the map.
+    const constraint = page.locator("section", { hasText: "Line constraint" }).first();
+    await expect(constraint.getByText("Press shop", { exact: true })).toBeVisible();
+    await expect(constraint.getByText(/of sustainable capacity/)).toBeVisible();
+
+    expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
+  });
+
+  test("clicking a process opens its process overview", async ({ page }) => {
+    const errors = watchConsole(page);
+    await openOverview(page);
+
+    const map = page.locator("section", { hasText: "Vehicle manufacturing flow" }).first();
+    await map.getByRole("link", { name: /Paint shop/ }).first().click();
+    await page.waitForURL("**/process/paint-shop/");
+
+    await expect(page.getByRole("heading", { name: "Paint shop", level: 1 })).toBeVisible();
+    await expect(page.getByText("Operations in sequence")).toBeVisible();
+    await expect(page.getByText("Electro-deposition (ED) coat")).toBeVisible();
+
+    // Breadcrumbs place the page and lead back to the overview.
+    const crumbs = page.getByRole("navigation", { name: "Breadcrumb" });
+    await expect(crumbs.getByRole("link", { name: "Pan-India overview" })).toBeVisible();
+    await expect(crumbs.getByText("Paint shop")).toBeVisible();
+
+    await page.screenshot({ path: `${SHOTS}/08-process-paint-shop.png`, fullPage: true });
+
+    await crumbs.getByRole("link", { name: "Pan-India overview" }).click();
+    await expect(
+      page.getByRole("heading", { name: /pan-India manufacturing overview/i }),
+    ).toBeVisible();
+
+    expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
+  });
+
+  test("press shop process page routes through to station-level detail", async ({ page }) => {
+    const errors = watchConsole(page);
+    await page.goto("/process/press-shop/");
+
+    await expect(page.getByRole("heading", { name: "Press shop", level: 1 })).toBeVisible();
+    await expect(page.getByText(/Bottleneck process/)).toBeVisible();
+
+    // Only the press shop is instrumented, so only it offers the deep link.
+    await page.getByRole("link", { name: /Open station-level detail/ }).click();
+    await page.waitForURL("**/plant/**");
+    await expect(page.getByText("live process view")).toBeVisible();
+
+    expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
+  });
+
+  test("uninstrumented processes say so rather than implying telemetry", async ({ page }) => {
+    await page.goto("/process/trim-final/");
+    await expect(page.getByRole("heading", { name: "Trim & final assembly", level: 1 })).toBeVisible();
+    await expect(page.getByText(/Modelled at process level/i).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: /Open station-level detail/ })).toHaveCount(0);
+  });
+
+  test("factory filter scopes every metric on the page", async ({ page }) => {
+    const errors = watchConsole(page);
+    await openOverview(page);
+
+    const allIndia = await readTileValue(page, "Total production");
+    await expect(page.getByText(/5 of 5 factories/)).toBeVisible();
+
+    // By role, not label: "Factory" also matches the "…output by factory" chart region.
+    await page.getByRole("combobox", { name: "Factory" }).selectOption("nashik");
+    await expect(page.getByText(/1 of 5 factories/)).toBeVisible();
+
+    const nashikOnly = await readTileValue(page, "Total production");
+    expect(nashikOnly).toBeGreaterThan(0);
+    expect(nashikOnly).toBeLessThan(allIndia);
+
+    // The factory table collapses to the selected factory.
+    const table = page.locator("table", { hasText: "Share of India" }).first();
+    await expect(table.locator("tbody tr")).toHaveCount(1);
+
+    // The filter is in the URL, so the view is linkable.
+    expect(page.url()).toContain("factory=nashik");
+
+    expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
+  });
+
+  test("time filter switches the window from hourly to daily", async ({ page }) => {
+    const errors = watchConsole(page);
+    await openOverview(page);
+
+    const dayTotal = await readTileValue(page, "Total production");
+    await expect(page.getByText(/1 production day/)).toBeVisible();
+
+    await page.getByRole("button", { name: "30D", exact: true }).click();
+    await expect(page.getByText(/30 production days/)).toBeVisible();
+
+    const monthTotal = await readTileValue(page, "Total production");
+    expect(monthTotal).toBeGreaterThan(dayTotal);
+
+    // Trend switches to daily buckets.
+    await expect(page.getByText(/Panels produced per day/)).toBeVisible();
+
+    expect(page.url()).toContain("range=30d");
+
+    await page.screenshot({ path: `${SHOTS}/09-overview-30d.png`, fullPage: true });
+    expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
+  });
+
+  test("shift filter narrows the window and the numbers", async ({ page }) => {
+    const errors = watchConsole(page);
+    await openOverview(page);
+
+    const dayTotal = await readTileValue(page, "Total production");
 
     await page.getByRole("button", { name: "A", exact: true }).click();
-    await expect(page.getByText(/Shift A ·/).first()).toBeVisible();
+    await expect(page.getByText(/shift A/)).toBeVisible();
 
-    const shiftTotal = await readTileValue(page, "Panels produced");
-    // One shift out of three must be materially smaller than the full day.
+    const shiftTotal = await readTileValue(page, "Total production");
     expect(shiftTotal).toBeLessThan(dayTotal);
     expect(shiftTotal).toBeGreaterThan(0);
 
@@ -135,14 +270,29 @@ test.describe("Press Shop Intelligence portal", () => {
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
 
+  test("filters survive navigation between pages", async ({ page }) => {
+    await openOverview(page, "?range=7d&shift=B");
+
+    await page
+      .locator("section", { hasText: "Vehicle manufacturing flow" })
+      .first()
+      .getByRole("link", { name: /Body shop/ })
+      .first()
+      .click();
+    await page.waitForURL("**/process/body-shop/**");
+
+    // The window the user was looking at came with them.
+    expect(page.url()).toContain("range=7d");
+    expect(page.url()).toContain("shift=B");
+    await expect(page.getByText(/shift B/)).toBeVisible();
+  });
+
   test("plant page renders the 3D press line and all process metrics", async ({ page }) => {
     const errors = watchConsole(page);
     await openOverview(page);
 
-    await page.getByRole("link", { name: /Mahindra Nashik Plant/ }).click();
-    // Trailing slash: the export emits directory-style routes so the static
-    // host can resolve them off disk.
-    await page.waitForURL("**/plant/nashik/");
+    await page.getByRole("link", { name: /Mahindra Nashik Plant/ }).first().click();
+    await page.waitForURL("**/plant/nashik/**");
 
     await expect(page.getByRole("heading", { name: "Mahindra Nashik Plant" })).toBeVisible();
 
@@ -161,7 +311,6 @@ test.describe("Press Shop Intelligence portal", () => {
     });
     expect(isWebGL).toBe(true);
 
-    // All eleven stamping operations are represented across the lines.
     for (const op of ["Draw Press", "Trim & Pierce Press", "Flange & Restrike Press"]) {
       await expect(page.getByText(op).first()).toBeVisible();
     }
@@ -173,7 +322,6 @@ test.describe("Press Shop Intelligence portal", () => {
     await expect(page.getByText("Energy", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Quality output")).toBeVisible();
 
-    // Process flow strip and station matrix.
     await expect(page.getByText("Process station matrix")).toBeVisible();
     await expect(page.getByText("Downtime by cause")).toBeVisible();
 
@@ -187,7 +335,6 @@ test.describe("Press Shop Intelligence portal", () => {
 
   test("selecting a station and a line updates the detail panel", async ({ page }) => {
     const errors = watchConsole(page);
-    await openOverview(page);
     await page.goto("/plant/chakan/");
     await expect(page.getByRole("heading", { name: "Mahindra Chakan Plant" })).toBeVisible();
     await expect(page.locator("canvas")).toBeVisible({ timeout: 30_000 });
@@ -195,13 +342,11 @@ test.describe("Press Shop Intelligence portal", () => {
     // Default selection is the draw press.
     await expect(page.getByRole("heading", { name: "Draw Press" })).toBeVisible();
 
-    // Pick a different operation from the process flow strip.
     await page.getByRole("button", { name: /OP50/ }).first().click();
     await expect(
       page.getByRole("heading", { name: "Inspection & Checking Fixture" }),
     ).toBeVisible();
 
-    // Switch to the blanking line — its operations differ.
     await page.getByRole("button", { name: /Blanking Line BL-2/ }).click();
     await expect(page.getByRole("heading", { name: "Blanking Press" })).toBeVisible();
 
@@ -224,7 +369,6 @@ test.describe("Press Shop Intelligence portal", () => {
     const errors = watchConsole(page);
     await openOverview(page);
 
-    // The Pareto rows are buttons; open the top one.
     const pareto = page.locator("section", { hasText: "Rejection Pareto" }).first();
     await pareto.locator("button[aria-expanded]").first().click();
     await expect(page.getByText("Corrective action:").first()).toBeVisible();
@@ -247,8 +391,6 @@ test.describe("Press Shop Intelligence portal", () => {
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
 });
-
-// ---------------------------------------------------------------------------
 
 async function readTileValue(page: Page, label: string): Promise<number> {
   const tile = page.locator("div", { hasText: new RegExp(`^${label}$`) }).first();

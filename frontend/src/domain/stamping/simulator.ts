@@ -23,6 +23,7 @@ import {
   GRID_EMISSION_FACTOR,
   LINE_BY_ID,
   PLANTS,
+  SKUS,
   SKU_BY_ID,
   STATION_BY_ID,
 } from "./catalog";
@@ -126,10 +127,17 @@ const STATION_PROFILE: Record<
   racking: { faultWeight: 0.8, defectWeight: 0.5, loadFactor: 0.45 },
 };
 
-/** Baseline plant character — Chakan is newer and runs a little better. */
+/**
+ * Baseline plant character. Newer shops run faster and reject less: Haridwar
+ * and Chakan are the recent servo-transfer installations, Kandivali is the
+ * oldest press shop in the group and carries it in every metric.
+ */
 const PLANT_CHARACTER: Record<string, { perf: number; reject: number; downtime: number }> = {
   nashik: { perf: 0.86, reject: 0.0185, downtime: 1.0 },
   chakan: { perf: 0.9, reject: 0.0138, downtime: 0.82 },
+  kandivali: { perf: 0.79, reject: 0.0246, downtime: 1.24 },
+  haridwar: { perf: 0.91, reject: 0.0129, downtime: 0.78 },
+  zaheerabad: { perf: 0.83, reject: 0.0203, downtime: 1.08 },
 };
 
 /** Shift character — night shift is consistently the weakest, as in most plants. */
@@ -849,6 +857,106 @@ function buildTrend(
 
   return points;
 }
+
+// ---------------------------------------------------------------------------
+// Multi-day roll-up
+// ---------------------------------------------------------------------------
+
+/**
+ * One plant's press-shop output for one production day.
+ *
+ * Deliberately much cheaper than `simulatePlant`: it stops at the batch layer
+ * and never builds station snapshots, health or alarms. A 90-day pan-India
+ * trend is ~450 of these, which has to stay comfortably inside a frame.
+ */
+export interface PlantDayTotals {
+  plantId: string;
+  dayKey: string;
+  planned: number;
+  produced: number;
+  good: number;
+  rejected: number;
+  reworked: number;
+  ftt: number;
+  dpmo: number;
+  oee: number;
+  availability: number;
+  performance: number;
+  qualityRate: number;
+  downtimeMin: number;
+  kwh: number;
+  byDefect: Record<string, number>;
+}
+
+export function simulatePlantDay(
+  plantId: string,
+  dayKey: string,
+  shifts: ShiftId[],
+): PlantDayTotals {
+  const def = PLANTS.find((p) => p.id === plantId)!;
+
+  // Blanking lines make blanks, press lines make finished panels — counting
+  // both would report the same steel twice. Mirrors `simulatePlant`.
+  const pressLineIds = def.lineIds.filter(
+    (id) => LINE_BY_ID.get(id)!.type !== "blanking",
+  );
+
+  const batches = pressLineIds.flatMap((lineId) => lineBatches(lineId, dayKey, shifts));
+
+  const produced = sumBy(batches, (b) => b.produced);
+  const good = sumBy(batches, (b) => b.good);
+  const rejected = sumBy(batches, (b) => b.rejected);
+
+  const oee = computeOee({
+    plannedTimeMin: sumBy(batches, (b) => b.plannedMin),
+    downtimeMin: sumBy(batches, (b) => b.downtimeMin),
+    changeoverMin: sumBy(batches, (b) => b.changeoverMin),
+    totalCount: produced,
+    goodCount: good,
+    idealCycleSec: weightedIdealCycle(batches),
+  });
+
+  // Energy across every line, blanking included — a blanking press draws real
+  // power whether or not its output counts as finished goods.
+  const rng = new Rng("dayenergy", plantId, dayKey, shifts.join(""));
+  const kwh = def.lineIds.reduce((acc, lineId) => {
+    const line = LINE_BY_ID.get(lineId)!;
+    const lineKw = line.stationIds.reduce((a, sid) => {
+      const s = STATION_BY_ID.get(sid)!;
+      return a + s.ratedKw * STATION_PROFILE[s.kind].loadFactor;
+    }, 0);
+    return acc + lineKw * (oee.runTimeMin / 60) * rng.range(0.94, 1.06);
+  }, 0);
+
+  return {
+    plantId,
+    dayKey,
+    planned: sumBy(batches, (b) => b.planned),
+    produced,
+    good,
+    rejected,
+    reworked: sumBy(batches, (b) => b.reworked),
+    ftt: produced > 0 ? good / produced : 0,
+    dpmo: produced > 0 ? (rejected / produced) * 1_000_000 : 0,
+    oee: oee.oee,
+    availability: oee.availability,
+    performance: oee.performance,
+    qualityRate: oee.quality,
+    downtimeMin: oee.downtimeMin,
+    kwh,
+    byDefect: mergeDefects(batches.map((b) => b.byDefect)),
+  };
+}
+
+/** Every plant's totals for one production day. */
+export function simulateDay(dayKey: string, shifts: ShiftId[]): PlantDayTotals[] {
+  return PLANTS.map((p) => simulatePlantDay(p.id, dayKey, shifts));
+}
+
+/** Panels that make up one complete vehicle set — one of each SKU in scope. */
+export const PANELS_PER_VEHICLE = SKUS.length;
+
+export { THAR_DAILY_VOLUME };
 
 // ---------------------------------------------------------------------------
 // Defect distribution
