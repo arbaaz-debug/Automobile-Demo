@@ -21,14 +21,14 @@ import {
   processSequence,
 } from "@/domain/manufacturing/processes";
 import { processByFactory } from "@/domain/manufacturing/processMetrics";
+import { defaultSkuForPlant } from "@/domain/manufacturing/vehicles";
 import { useFilterState, useOverview } from "@/hooks/useOverview";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageSkeleton } from "@/components/layout/PageSkeleton";
 import { Card, CardBody, CardHeader, SectionLabel } from "@/components/ui/Card";
 import { Meter, StatTile } from "@/components/ui/StatTile";
-import { ProcessFlowMap } from "@/components/process/ProcessFlowMap";
-import { OverviewTrendChart } from "@/components/overview/OverviewTrendChart";
-import { QualityTrendChart } from "@/components/overview/QualityTrendChart";
+import { ProcessFlowStripMap } from "@/components/process/ProcessFlowStripMap";
+import { FactorySeriesChart } from "@/components/overview/FactorySeriesChart";
 import { fmtInt, fmtPct } from "@/lib/format";
 import { BAND_COLOR, BAND_LABEL, SERIES, STATUS, STATUS_TEXT } from "@/lib/theme";
 import { processCrumbs, routes } from "@/lib/routes";
@@ -74,6 +74,7 @@ export function ProcessView({ processId }: { processId: string }) {
   const downstream = PROCESSES.filter((p) => p.inputs.includes(processId));
 
   const metrics = data?.chain.chain.find((c) => c.processId === processId);
+  const processSeries = data?.seriesByProcess[processId];
   const isBottleneck = data?.chain.bottleneck.processId === processId;
 
   const factoryRows = useMemo(() => {
@@ -83,6 +84,9 @@ export function ProcessView({ processId }: { processId: string }) {
       (a, b) => b.produced - a.produced,
     );
   }, [data, processId, filters.shiftId]);
+
+  // Where "open this process at a factory" goes when the page is pan-India.
+  const defaultFactoryId = filters.plantId === "all" ? "nashik" : filters.plantId;
 
   const scopeName =
     filters.plantId === "all"
@@ -108,7 +112,7 @@ export function ProcessView({ processId }: { processId: string }) {
       crumbs={processCrumbs(processId, search)}
       search={search}
     >
-      {!data || !metrics ? (
+      {!data || !metrics || !processSeries ? (
         <PageSkeleton />
       ) : (
         <>
@@ -156,7 +160,7 @@ export function ProcessView({ processId }: { processId: string }) {
             <StatTile
               label="Throughput"
               value={fmtInt(metrics.produced)}
-              unit="sets/day"
+              unit="veh/day"
               accent={SERIES[0]}
               icon={<Layers size={14} />}
               context={`${fmtInt(metrics.good)} good per day`}
@@ -164,7 +168,7 @@ export function ProcessView({ processId }: { processId: string }) {
             <StatTile
               label="Rejections"
               value={fmtInt(metrics.rejected)}
-              unit="sets/day"
+              unit="veh/day"
               accent={STATUS.critical}
               valueColor={STATUS_TEXT.critical}
               icon={<TriangleAlert size={14} />}
@@ -192,7 +196,7 @@ export function ProcessView({ processId }: { processId: string }) {
               accent={isBottleneck ? STATUS.warning : SERIES[2]}
               valueColor={isBottleneck ? STATUS_TEXT.warning : undefined}
               icon={<Gauge size={14} />}
-              context={`${fmtInt(metrics.capacity)} sets/day sustainable`}
+              context={`${fmtInt(metrics.capacity)} veh/day sustainable`}
             />
           </div>
 
@@ -219,8 +223,10 @@ export function ProcessView({ processId }: { processId: string }) {
 
                 {def.instrumented ? (
                   <Link
-                    href={routes.plant(
-                      filters.plantId === "all" ? "nashik" : filters.plantId,
+                    href={routes.factoryProcess(
+                      defaultFactoryId,
+                      defaultSkuForPlant(defaultFactoryId),
+                      processId,
                       search,
                     )}
                     className="mt-4 inline-flex items-center gap-1.5 rounded border border-[var(--border)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--text-secondary)] transition hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]"
@@ -248,7 +254,7 @@ export function ProcessView({ processId }: { processId: string }) {
                 }
               />
               <CardBody>
-                <ProcessFlowMap
+                <ProcessFlowStripMap
                   chain={data.chain.chain}
                   bottleneckId={data.chain.bottleneck.processId}
                   search={search}
@@ -262,8 +268,24 @@ export function ProcessView({ processId }: { processId: string }) {
           <SectionLabel>Trend across the selected window</SectionLabel>
 
           <div className="mb-6 grid grid-cols-1 gap-3 xl:grid-cols-2">
-            <OverviewTrendChart points={data.points} bucket={data.bucket} />
-            <QualityTrendChart points={data.points} bucket={data.bucket} />
+            <FactorySeriesChart
+              title={`${def.name} throughput`}
+              subtitle={`Vehicles through this process per ${data.bucket}, by factory`}
+              metric="produced"
+              metricDef={{ label: "Vehicles", format: (v) => fmtInt(v), isRate: false }}
+              all={processSeries.all}
+              seriesByFactory={processSeries.byFactory}
+              bucket={data.bucket}
+            />
+            <FactorySeriesChart
+              title={`${def.name} OEE`}
+              subtitle={`Effectiveness at this process per ${data.bucket}, by factory`}
+              metric="oee"
+              metricDef={{ label: "OEE", format: (v) => fmtPct(v, 1), isRate: true }}
+              all={processSeries.all}
+              seriesByFactory={processSeries.byFactory}
+              bucket={data.bucket}
+            />
           </div>
 
           {/* --- per factory ------------------------------------------------ */}
@@ -283,7 +305,7 @@ export function ProcessView({ processId }: { processId: string }) {
                       Factory
                     </th>
                     <th scope="col" className="px-3 py-2 text-right font-medium">
-                      Sets / day
+                      Vehicles / day
                     </th>
                     <th scope="col" className="px-3 py-2 text-right font-medium">
                       Rejected
@@ -307,10 +329,10 @@ export function ProcessView({ processId }: { processId: string }) {
                     >
                       <th scope="row" className="py-2.5 pl-4 pr-3 text-left font-normal">
                         <Link
-                          href={routes.plant(row.plantId, search)}
+                          href={routes.factoryProcess(row.plantId, defaultSkuForPlant(row.plantId), processId, search)}
                           className="block font-medium text-[var(--text-primary)] underline-offset-2 hover:underline"
                         >
-                          {row.plantName}
+                          {row.city.split(",")[0]}
                         </Link>
                         <span className="block text-[10px] text-[var(--text-muted)]">
                           {row.city}

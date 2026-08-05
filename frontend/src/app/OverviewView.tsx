@@ -3,26 +3,26 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
 import {
-  AlertTriangle,
-  Factory as FactoryIcon,
+  Car,
   Gauge,
-  Layers,
+  Lightbulb,
+  Route,
   ShieldCheck,
+  SignpostBig,
   TriangleAlert,
 } from "lucide-react";
 import { PLANT_BY_ID, PLANTS } from "@/domain/stamping/catalog";
-import { PROCESS_BY_ID } from "@/domain/manufacturing/processes";
 import { bandForFtt, bandForOee } from "@/domain/stamping/oee";
 import { useFilterState, useOverview } from "@/hooks/useOverview";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageSkeleton } from "@/components/layout/PageSkeleton";
 import { Card, CardBody, CardHeader, SectionLabel } from "@/components/ui/Card";
-import { StatTile } from "@/components/ui/StatTile";
-import { ProcessFlowMap } from "@/components/process/ProcessFlowMap";
-import { OverviewTrendChart } from "@/components/overview/OverviewTrendChart";
-import { QualityTrendChart } from "@/components/overview/QualityTrendChart";
-import { FactoryOutputChart, FactoryTable } from "@/components/overview/FactoryComparison";
-import { RejectionPareto } from "@/components/charts/RejectionPareto";
+import { SplitStatTile } from "@/components/overview/SplitStatTile";
+import { FactorySeriesChart } from "@/components/overview/FactorySeriesChart";
+import { RoadblockPanel } from "@/components/overview/RoadblockPanel";
+import { InsightsPanel } from "@/components/overview/InsightsPanel";
+import { FactoryTable } from "@/components/overview/FactoryComparison";
+import { ProcessFlowStripMap } from "@/components/process/ProcessFlowStripMap";
 import { fmtInt, fmtPct } from "@/lib/format";
 import { BAND_COLOR, BAND_LABEL, SERIES, STATUS, STATUS_TEXT } from "@/lib/theme";
 import { overviewCrumbs } from "@/lib/routes";
@@ -30,11 +30,20 @@ import { overviewCrumbs } from "@/lib/routes";
 /**
  * Pan-India overview — the portal's landing page.
  *
- * Everything here answers the same question over the same window: how is the
- * Thar programme running across every Mahindra factory in India. The factory
- * and time filters in the header scope every tile, trend, table and the process
- * map together, which is the point — a page where each card carried its own
- * window would let two numbers on one screen disagree.
+ * Everything answers the same question over the same window: how is the vehicle
+ * programme running across every factory in India. The factory and time filters
+ * in the header scope every tile, trend, table and the process map together — a
+ * page where each card carried its own window would let two numbers on one
+ * screen disagree.
+ *
+ * The unit throughout is **vehicles**. Panels appear once, as a footnote on the
+ * production tile, because that is the press shop's unit and this page is not
+ * the press shop.
+ *
+ * Reading order is deliberate: the headline numbers, then where the group is
+ * blocked, then what to do about it, then the trends, then the factory table,
+ * and the process chain last — it is the reference diagram, not the daily
+ * question.
  */
 export function OverviewView() {
   const router = useRouter();
@@ -83,210 +92,186 @@ export function OverviewView() {
         <>
           <header className="mb-5">
             <h1 className="text-[20px] font-semibold tracking-tight text-[var(--text-primary)]">
-              Mahindra Thar · pan-India manufacturing overview
+              Pan-India manufacturing overview
             </h1>
             <p className="mt-1 text-[12px] text-[var(--text-muted)]">
               {scopeName} · {data.windowLabel} · {data.plantIds.length} of {PLANTS.length}{" "}
-              factories · counts are finished panels off the press lines
+              factories · vehicles off the end of the line
             </p>
           </header>
 
-          {/* --- headline metrics ------------------------------------------ */}
+          {/* --- headline metrics, each opening into its factory split ------ */}
 
           <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <StatTile
-              label="Total production"
+            <SplitStatTile
+              label="Vehicles produced"
               value={fmtInt(data.totals.produced)}
-              unit="panels"
+              unit="vehicles"
               accent={SERIES[0]}
-              icon={<Layers size={14} />}
-              spark={data.points.map((p) => p.produced)}
-              context={`${fmtInt(data.totals.good)} good · ${data.totals.days} production ${
+              icon={<Car size={14} />}
+              split={data.splits.produced}
+              formatSplit={(r) => fmtInt(r.value)}
+              search={search}
+              context={`${fmtInt(data.totals.good)} passed first time · ${fmtInt(
+                data.totals.panels,
+              )} panels stamped`}
+            />
+            <SplitStatTile
+              label="Avg production / day"
+              value={fmtInt(data.totals.avgPerDay)}
+              unit="vehicles"
+              accent={SERIES[2]}
+              icon={<Gauge size={14} />}
+              split={data.splits.avgPerDay}
+              formatSplit={(r) => fmtInt(r.value)}
+              search={search}
+              context={`Across ${data.totals.days} production ${
                 data.totals.days === 1 ? "day" : "days"
               }`}
             />
-            <StatTile
-              label="Avg production / day"
-              value={fmtInt(data.totals.avgPerDay)}
-              unit="panels"
-              accent={SERIES[2]}
-              icon={<Gauge size={14} />}
-              context={`${fmtInt(data.totals.avgVehicleSetsPerDay)} vehicle sets per day`}
-            />
-            <StatTile
+            <SplitStatTile
               label="Total rejections"
               value={fmtInt(data.totals.rejected)}
-              unit="panels"
+              unit="vehicles"
               accent={STATUS.critical}
               valueColor={STATUS_TEXT.critical}
               icon={<TriangleAlert size={14} />}
-              spark={data.points.map((p) => p.rejected)}
-              context={`${fmtPct(data.totals.rejectRate, 2)} reject rate · ${fmtInt(
-                data.totals.reworked,
-              )} reworked`}
+              split={data.splits.rejected}
+              formatSplit={(r) => fmtInt(r.value)}
+              search={search}
+              context={`${fmtPct(data.totals.rejectRate, 2)} of build, rejected at any process`}
             />
-            <StatTile
+            <SplitStatTile
               label="First time through"
-              value={fmtPct(data.totals.ftt, 1)}
+              value={fmtPct(data.totals.rty, 1)}
               accent={SERIES[3]}
-              valueColor={BAND_COLOR[bandForFtt(data.totals.ftt)]}
+              valueColor={BAND_COLOR[bandForFtt(data.totals.rty)]}
               icon={<ShieldCheck size={14} />}
-              context={`${fmtInt(data.totals.dpmo)} DPMO · ${
-                BAND_LABEL[bandForFtt(data.totals.ftt)]
+              split={data.splits.rty}
+              formatSplit={(r) => fmtPct(r.value, 1)}
+              search={search}
+              context={`Rolled yield across all 8 processes · ${
+                BAND_LABEL[bandForFtt(data.totals.rty)]
               }`}
             />
-            <StatTile
+            <SplitStatTile
               label="Group OEE"
               value={fmtPct(data.totals.oee, 1)}
               accent={SERIES[5]}
               valueColor={BAND_COLOR[bandForOee(data.totals.oee)]}
-              icon={<FactoryIcon size={14} />}
-              context={`A ${fmtPct(data.totals.availability, 0)} · P ${fmtPct(
-                data.totals.performance,
-                0,
-              )} · Q ${fmtPct(data.totals.qualityRate, 0)}`}
+              icon={<Gauge size={14} />}
+              split={data.splits.oee}
+              formatSplit={(r) => fmtPct(r.value, 1)}
+              search={search}
+              context={BAND_LABEL[bandForOee(data.totals.oee)]}
             />
           </div>
 
-          {/* --- process chain --------------------------------------------- */}
+          {/* --- roadblocks -------------------------------------------------- */}
 
-          <SectionLabel>Car manufacturing process — click a process for detail</SectionLabel>
-
-          <div className="mb-6 grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
-            <Card>
-              <CardHeader
-                title="Vehicle manufacturing flow"
-                subtitle={`Sequence for ${scopeName} · both streams converge at body-chassis marriage`}
-              />
-              <CardBody>
-                <ProcessFlowMap
-                  chain={data.chain.chain}
-                  bottleneckId={data.chain.bottleneck.processId}
-                  search={search}
-                />
-              </CardBody>
-            </Card>
-
-            <BottleneckCard data={data} />
-          </div>
-
-          {/* --- trends ----------------------------------------------------- */}
-
-          <SectionLabel>Production &amp; quality trend</SectionLabel>
-
-          <div className="mb-6 grid grid-cols-1 gap-3 xl:grid-cols-2">
-            <OverviewTrendChart points={data.points} bucket={data.bucket} />
-            <QualityTrendChart points={data.points} bucket={data.bucket} />
-          </div>
-
-          {/* --- factories --------------------------------------------------- */}
-
-          <SectionLabel>Factory comparison</SectionLabel>
-
-          <div className="mb-6 grid grid-cols-1 gap-3 xl:grid-cols-2">
-            <FactoryOutputChart factories={data.factories} />
-            <RejectionPareto
-              byDefect={data.byDefect}
-              subtitle={`${scopeName} · ${fmtInt(data.totals.rejected)} rejections in window`}
-            />
-          </div>
+          <SectionLabel>Roadblocks — where each factory is losing output</SectionLabel>
 
           <Card className="mb-6">
             <CardHeader
-              title="Factory performance"
-              subtitle="Click a factory to open its press-shop detail"
+              title="Constraint and weakest process by factory"
+              subtitle="The constraint caps what a plant can build; the weakest process is where it is losing what it can"
+              icon={<SignpostBig size={14} />}
+            />
+            <RoadblockPanel factories={data.factories} search={search} />
+          </Card>
+
+          {/* --- insights ---------------------------------------------------- */}
+
+          <SectionLabel>Recommendations</SectionLabel>
+
+          <Card className="mb-6">
+            <CardHeader
+              title="Factory → process insights"
+              subtitle="Generated from threshold crossings in the same chain the page reports"
+              icon={<Lightbulb size={14} />}
+            />
+            <InsightsPanel
+              insights={data.insights}
+              factories={data.factories}
+              search={search}
+            />
+          </Card>
+
+          {/* --- trends ------------------------------------------------------ */}
+
+          <SectionLabel>Trends — click a legend to show or hide a factory</SectionLabel>
+
+          <div className="mb-6 grid grid-cols-1 gap-3 xl:grid-cols-2">
+            <FactorySeriesChart
+              title="Vehicles produced"
+              subtitle={`Per ${data.bucket}, by factory`}
+              metric="produced"
+              metricDef={{ label: "Vehicles", format: (v) => fmtInt(v), isRate: false }}
+              all={data.points}
+              seriesByFactory={data.seriesByFactory}
+              bucket={data.bucket}
+            />
+            <FactorySeriesChart
+              title="Rejections"
+              subtitle={`Vehicles rejected at any process, per ${data.bucket}`}
+              metric="rejected"
+              metricDef={{ label: "Rejected", format: (v) => fmtInt(v), isRate: false }}
+              all={data.points}
+              seriesByFactory={data.seriesByFactory}
+              bucket={data.bucket}
+            />
+            <FactorySeriesChart
+              title="First time through"
+              subtitle={`Rolled yield across the chain, per ${data.bucket}`}
+              metric="rty"
+              metricDef={{ label: "FTT", format: (v) => fmtPct(v, 1), isRate: true }}
+              all={data.points}
+              seriesByFactory={data.seriesByFactory}
+              bucket={data.bucket}
+            />
+            <FactorySeriesChart
+              title="OEE"
+              subtitle={`Effectiveness across the chain, per ${data.bucket}`}
+              metric="oee"
+              metricDef={{ label: "OEE", format: (v) => fmtPct(v, 1), isRate: true }}
+              all={data.points}
+              seriesByFactory={data.seriesByFactory}
+              bucket={data.bucket}
+            />
+          </div>
+
+          {/* --- factory table ----------------------------------------------- */}
+
+          <SectionLabel>Factory performance</SectionLabel>
+
+          <Card className="mb-6">
+            <CardHeader
+              title="All factories"
+              subtitle="Click a factory to open its models and processes"
             />
             <FactoryTable factories={data.factories} search={search} />
+          </Card>
+
+          {/* --- process chain, last ------------------------------------------ */}
+
+          <SectionLabel>Car manufacturing process — click a process for detail</SectionLabel>
+
+          <Card className="mb-6">
+            <CardHeader
+              title="Vehicle manufacturing flow"
+              subtitle={`${scopeName} · both streams converge at body-chassis marriage · ${data.chain.bottleneckDef.name} is the constraint`}
+              icon={<Route size={14} />}
+            />
+            <CardBody>
+              <ProcessFlowStripMap
+                chain={data.chain.chain}
+                bottleneckId={data.chain.bottleneck.processId}
+                search={search}
+              />
+            </CardBody>
           </Card>
         </>
       )}
     </AppShell>
-  );
-}
-
-/**
- * States the constraint in words.
- *
- * The map marks the bottleneck, but a badge on a diagram is easy to miss and
- * impossible to act on. This says which process it is, how hard it is running,
- * and what the rest of the line is waiting on.
- */
-function BottleneckCard({ data }: { data: NonNullable<ReturnType<typeof useOverview>["data"]> }) {
-  const { bottleneck, bottleneckDef, chain, vehiclesBuilt } = data.chain;
-  const starved = chain
-    .filter((c) => c.processId !== bottleneck.processId && c.starvedBy > 1)
-    .sort((a, b) => b.starvedBy - a.starvedBy)
-    .slice(0, 3);
-
-  return (
-    <Card>
-      <CardHeader
-        title="Line constraint"
-        subtitle="The process with the least headroom"
-        icon={<AlertTriangle size={14} />}
-      />
-      <CardBody className="space-y-3">
-        <div
-          className="rounded-md px-3 py-2.5"
-          style={{ backgroundColor: `${STATUS.warning}1a` }}
-        >
-          <p
-            className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider"
-            style={{ color: STATUS_TEXT.warning }}
-          >
-            <AlertTriangle size={12} aria-hidden />
-            Bottleneck
-          </p>
-          <p className="mt-1 text-[15px] font-semibold text-[var(--text-primary)]">
-            {bottleneckDef.name}
-          </p>
-          <p className="mt-0.5 text-[11px] text-[var(--text-secondary)]">
-            Running at {fmtPct(bottleneck.utilisation, 1)} of sustainable capacity —{" "}
-            {fmtInt(bottleneck.capacity)} vehicle sets per day.
-          </p>
-        </div>
-
-        <p className="text-[11px] leading-relaxed text-[var(--text-secondary)]">
-          Steel stamping sets the pace for the whole plant. Large draw dies are slow to
-          change and the presses are the least elastic asset on site, so every process
-          downstream of it can only build what the press shop delivers.
-        </p>
-
-        <dl className="grid grid-cols-2 gap-2 border-t border-[var(--border)] pt-3 text-[11px]">
-          <div>
-            <dt className="text-[var(--text-muted)]">Vehicles built / day</dt>
-            <dd className="tabular text-[15px] font-semibold text-[var(--text-primary)]">
-              {fmtInt(vehiclesBuilt)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[var(--text-muted)]">Press shop OEE</dt>
-            <dd className="tabular text-[15px] font-semibold text-[var(--text-primary)]">
-              {fmtPct(bottleneck.oee, 1)}
-            </dd>
-          </div>
-        </dl>
-
-        {starved.length > 0 ? (
-          <div className="border-t border-[var(--border)] pt-3">
-            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-              Idle capacity downstream
-            </p>
-            <ul className="space-y-1">
-              {starved.map((s) => (
-                <li key={s.processId} className="flex items-center justify-between text-[11px]">
-                  <span className="text-[var(--text-secondary)]">
-                    {PROCESS_BY_ID.get(s.processId)?.name ?? s.processId}
-                  </span>
-                  <span className="tabular text-[var(--text-muted)]">
-                    {fmtInt(s.starvedBy)} sets/day spare
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </CardBody>
-    </Card>
   );
 }

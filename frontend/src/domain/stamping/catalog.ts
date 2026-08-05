@@ -580,7 +580,7 @@ export const STATION_BY_ID = new Map(STATIONS.map((s) => [s.id, s]));
 export const PLANTS: PlantDef[] = [
   {
     id: "nashik",
-    name: "Mahindra Nashik Plant",
+    name: "Nashik Plant",
     city: "Nashik",
     state: "Maharashtra",
     lat: 19.9975,
@@ -591,7 +591,7 @@ export const PLANTS: PlantDef[] = [
   },
   {
     id: "chakan",
-    name: "Mahindra Chakan Plant",
+    name: "Chakan Plant",
     city: "Chakan, Pune",
     state: "Maharashtra",
     lat: 18.7606,
@@ -602,7 +602,7 @@ export const PLANTS: PlantDef[] = [
   },
   {
     id: "kandivali",
-    name: "Mahindra Kandivali Plant",
+    name: "Kandivali Plant",
     city: "Kandivali, Mumbai",
     state: "Maharashtra",
     lat: 19.2094,
@@ -613,7 +613,7 @@ export const PLANTS: PlantDef[] = [
   },
   {
     id: "haridwar",
-    name: "Mahindra Haridwar Plant",
+    name: "Haridwar Plant",
     city: "Haridwar",
     state: "Uttarakhand",
     lat: 29.9457,
@@ -624,7 +624,7 @@ export const PLANTS: PlantDef[] = [
   },
   {
     id: "zaheerabad",
-    name: "Mahindra Zaheerabad Plant",
+    name: "Zaheerabad Plant",
     city: "Zaheerabad",
     state: "Telangana",
     lat: 17.6816,

@@ -304,6 +304,24 @@ export function tightestProcess(): ProcessDef {
   );
 }
 
+/**
+ * The last process in the chain — the one nothing else consumes.
+ *
+ * Derived rather than indexed off the end of `processSequence()`: that order
+ * interleaves the two parallel streams, so "last in the array" is only
+ * accidentally the terminal process.
+ */
+export function terminalProcess(): ProcessDef {
+  const consumed = new Set(PROCESSES.flatMap((p) => p.inputs));
+  const terminals = PROCESSES.filter((p) => !consumed.has(p.id));
+  if (terminals.length !== 1) {
+    throw new Error(
+      `Expected exactly one terminal process, found: ${terminals.map((p) => p.id).join(", ")}`,
+    );
+  }
+  return terminals[0];
+}
+
 /** Processes laid out by stream, in flow order — drives the process map. */
 export function processesByStream(stream: ProcessStream): ProcessDef[] {
   return PROCESSES.filter((p) => p.stream === stream).sort((a, b) => a.order - b.order);

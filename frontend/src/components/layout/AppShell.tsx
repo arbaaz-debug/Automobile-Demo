@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { Activity, Factory, RefreshCw, Radio, Database, ChevronDown } from "lucide-react";
 import { PLANTS, SHIFTS } from "@/domain/stamping/catalog";
@@ -84,7 +83,6 @@ function TopBar({
   search?: string | null;
   showFactoryFilter: boolean;
 }) {
-  const pathname = usePathname();
   const { session } = useAuth();
 
   return (
@@ -103,24 +101,6 @@ function TopBar({
             </span>
           </span>
         </Link>
-
-        <nav className="flex items-center gap-1" aria-label="Sections">
-          <NavLink href={routes.overview(search)} active={pathname === "/"}>
-            Overview
-          </NavLink>
-          <NavLink
-            href={routes.process("press-shop", search)}
-            active={pathname?.startsWith("/process") ?? false}
-          >
-            Processes
-          </NavLink>
-          <NavLink
-            href={routes.plant(PLANTS[0].id, search)}
-            active={pathname?.startsWith("/plant") ?? false}
-          >
-            Factories
-          </NavLink>
-        </nav>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {showFactoryFilter ? <FactoryPicker controls={controls} /> : null}
@@ -143,31 +123,6 @@ function TopBar({
         </div>
       </div>
     </header>
-  );
-}
-
-function NavLink({
-  href,
-  active,
-  children,
-}: {
-  href: string;
-  active: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "rounded px-2.5 py-1.5 text-[12px] font-medium transition",
-        active
-          ? "bg-[var(--surface-3)] text-[var(--text-primary)]"
-          : "text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)]",
-      )}
-    >
-      {children}
-    </Link>
   );
 }
 

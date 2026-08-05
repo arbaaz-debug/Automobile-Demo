@@ -1,91 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { ChevronRight } from "lucide-react";
 import type { FactoryRow } from "@/services/data/overview";
-import { AXIS_PROPS, BAND_COLOR, COLORS, GRID_PROPS, SERIES, STATUS_TEXT } from "@/lib/theme";
+import { BAND_COLOR, SERIES, STATUS_TEXT } from "@/lib/theme";
 import { bandForOee } from "@/domain/stamping/oee";
 import { fmtInt, fmtPct } from "@/lib/format";
 import { Meter } from "@/components/ui/StatTile";
 import { routes } from "@/lib/routes";
-import { ChartFrame, ChartTable, TooltipCard } from "@/components/charts/ChartFrame";
-
-/**
- * Average daily output per factory.
- *
- * Averaged per day rather than totalled, because the whole point is to compare
- * factories to each other over whatever window is selected — a 90-day total and
- * a 7-day total are not comparable numbers, but their daily averages are.
- */
-export function FactoryOutputChart({
-  factories,
-  height = 260,
-}: {
-  factories: FactoryRow[];
-  height?: number;
-}) {
-  const data = factories.map((f) => ({
-    ...f,
-    label: f.city.split(",")[0],
-  }));
-
-  return (
-    <ChartFrame
-      title="Average daily output by factory"
-      subtitle="Panels per production day, across the selected window"
-      height={height}
-      table={
-        <ChartTable
-          head={["Factory", "Per day", "Total", "Rejected", "OEE"]}
-          rows={factories.map((f) => [
-            f.city,
-            fmtInt(f.avgPerDay),
-            fmtInt(f.produced),
-            fmtInt(f.rejected),
-            fmtPct(f.oee, 1),
-          ])}
-        />
-      }
-    >
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
-          <CartesianGrid {...GRID_PROPS} />
-          <XAxis dataKey="label" {...AXIS_PROPS} interval={0} />
-          <YAxis {...AXIS_PROPS} width={48} tickFormatter={(v: number) => fmtInt(v)} />
-          <Tooltip
-            cursor={{ fill: COLORS.surface3, opacity: 0.4 }}
-            content={({ active, payload }) => {
-              if (!active || !payload?.length) return null;
-              const f = payload[0].payload as FactoryRow;
-              return (
-                <TooltipCard
-                  label={f.plantName}
-                  rows={[
-                    { name: "Panels per day", value: fmtInt(f.avgPerDay), color: SERIES[0] },
-                    { name: "Window total", value: fmtInt(f.produced) },
-                    { name: "Rejected", value: fmtInt(f.rejected) },
-                    { name: "OEE", value: fmtPct(f.oee, 1) },
-                    { name: "Share of India", value: fmtPct(f.share, 1) },
-                  ]}
-                />
-              );
-            }}
-          />
-          <Bar dataKey="avgPerDay" fill={SERIES[0]} radius={[4, 4, 0, 0]} maxBarSize={64} />
-        </BarChart>
-      </ResponsiveContainer>
-    </ChartFrame>
-  );
-}
 
 /**
  * The per-factory table, and the page's route into a factory.
@@ -105,7 +27,7 @@ export function FactoryTable({
     <div className="overflow-x-auto">
       <table className="w-full min-w-[760px] text-[12px]">
         <caption className="sr-only">
-          Production, quality and effectiveness by factory for the selected window
+          Vehicle production, quality and effectiveness by factory for the selected window
         </caption>
         <thead>
           <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-[0.1em] text-[var(--text-muted)]">
@@ -116,16 +38,13 @@ export function FactoryTable({
               Per day
             </th>
             <th scope="col" className="px-3 py-2 text-right font-medium">
-              Produced
+              Vehicles
             </th>
             <th scope="col" className="px-3 py-2 text-right font-medium">
               Rejected
             </th>
             <th scope="col" className="px-3 py-2 text-right font-medium">
               FTT
-            </th>
-            <th scope="col" className="px-3 py-2 text-right font-medium">
-              DPMO
             </th>
             <th scope="col" className="px-3 py-2 text-right font-medium">
               OEE
@@ -149,7 +68,7 @@ export function FactoryTable({
                     href={routes.plant(f.plantId, search)}
                     className="block text-[var(--text-primary)] underline-offset-2 hover:underline"
                   >
-                    <span className="block font-medium">{f.plantName}</span>
+                    <span className="block font-medium">{f.name}</span>
                     <span className="block text-[10px] text-[var(--text-muted)]">
                       {f.city} · {f.state}
                     </span>
@@ -168,10 +87,7 @@ export function FactoryTable({
                   {fmtInt(f.rejected)}
                 </td>
                 <td className="tabular px-3 py-2.5 text-right text-[var(--text-secondary)]">
-                  {fmtPct(f.ftt, 1)}
-                </td>
-                <td className="tabular px-3 py-2.5 text-right text-[var(--text-secondary)]">
-                  {fmtInt(f.dpmo)}
+                  {fmtPct(f.rty, 1)}
                 </td>
                 <td
                   className="tabular px-3 py-2.5 text-right font-semibold"

@@ -30,9 +30,9 @@ function watchConsole(page: Page): string[] {
 async function openOverview(page: Page, query = "") {
   await page.goto(`/${query}`);
   await expect(
-    page.getByRole("heading", { name: /pan-India manufacturing overview/i }),
+    page.getByRole("heading", { name: /Pan-India manufacturing overview/i }),
   ).toBeVisible();
-  await expect(page.getByText("Total production", { exact: true })).toBeVisible();
+  await expect(page.getByText("Vehicles produced", { exact: true }).first()).toBeVisible();
 }
 
 test.describe("Mahindra Manufacturing Intelligence portal", () => {
@@ -81,7 +81,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     await openOverview(page);
 
     for (const label of [
-      "Total production",
+      "Vehicles produced",
       "Avg production / day",
       "Total rejections",
       "First time through",
@@ -94,10 +94,10 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     await expect(page.getByText("Simulated data")).toBeVisible();
 
     // Trends and the factory comparison are present.
-    await expect(page.getByText("Production trend")).toBeVisible();
-    await expect(page.getByText("Quality & effectiveness")).toBeVisible();
-    await expect(page.getByText("Average daily output by factory")).toBeVisible();
-    await expect(page.getByText("Rejection Pareto")).toBeVisible();
+    await expect(page.getByText("Vehicles produced").first()).toBeVisible();
+    await expect(page.getByText("Rejections", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Roadblocks — where each factory is losing output")).toBeVisible();
+    await expect(page.getByText("Factory → process insights")).toBeVisible();
 
     await page.screenshot({ path: `${SHOTS}/02-overview.png`, fullPage: true });
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
@@ -106,7 +106,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
   test("every factory in India is listed and totals reconcile", async ({ page }) => {
     await openOverview(page);
 
-    const group = await readTileValue(page, "Total production");
+    const group = await readTileValue(page, "Vehicles produced");
 
     // The factory table is the breakdown of the same figure.
     const table = page.locator("table", { hasText: "Share of India" }).first();
@@ -149,10 +149,13 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     const pressNode = map.getByRole("link", { name: /Press shop/ }).first();
     await expect(pressNode.getByText(/Bottleneck/)).toBeVisible();
 
-    // And it is called out explicitly alongside the map.
-    const constraint = page.locator("section", { hasText: "Line constraint" }).first();
-    await expect(constraint.getByText("Press shop", { exact: true })).toBeVisible();
-    await expect(constraint.getByText(/of sustainable capacity/)).toBeVisible();
+    // And it is named in the flow card's own subtitle.
+    await expect(map.getByText(/is the constraint/)).toBeVisible();
+
+    // The roadblock table names the constraint per factory.
+    const roadblocks = page.locator("table", { hasText: "Constraint — capping output" }).first();
+    await expect(roadblocks.locator("tbody tr")).toHaveCount(5);
+    await expect(roadblocks.getByText("Press shop").first()).toBeVisible();
 
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
@@ -178,7 +181,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
 
     await crumbs.getByRole("link", { name: "Pan-India overview" }).click();
     await expect(
-      page.getByRole("heading", { name: /pan-India manufacturing overview/i }),
+      page.getByRole("heading", { name: /Pan-India manufacturing overview/i }),
     ).toBeVisible();
 
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
@@ -193,7 +196,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
 
     // Only the press shop is instrumented, so only it offers the deep link.
     await page.getByRole("link", { name: /Open station-level detail/ }).click();
-    await page.waitForURL("**/plant/**");
+    await page.waitForURL("**/factory/**");
     await expect(page.getByText("live process view")).toBeVisible();
 
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
@@ -210,14 +213,17 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     const errors = watchConsole(page);
     await openOverview(page);
 
-    const allIndia = await readTileValue(page, "Total production");
+    const allIndia = await readTileValue(page, "Vehicles produced");
     await expect(page.getByText(/5 of 5 factories/)).toBeVisible();
 
-    // By role, not label: "Factory" also matches the "…output by factory" chart region.
-    await page.getByRole("combobox", { name: "Factory" }).selectOption("nashik");
+    // Scoped to the header: the insights panel has a Factory combobox too.
+    await page
+      .getByRole("banner")
+      .getByRole("combobox", { name: "Factory" })
+      .selectOption("nashik");
     await expect(page.getByText(/1 of 5 factories/)).toBeVisible();
 
-    const nashikOnly = await readTileValue(page, "Total production");
+    const nashikOnly = await readTileValue(page, "Vehicles produced");
     expect(nashikOnly).toBeGreaterThan(0);
     expect(nashikOnly).toBeLessThan(allIndia);
 
@@ -235,17 +241,17 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     const errors = watchConsole(page);
     await openOverview(page);
 
-    const dayTotal = await readTileValue(page, "Total production");
+    const dayTotal = await readTileValue(page, "Vehicles produced");
     await expect(page.getByText(/1 production day/)).toBeVisible();
 
     await page.getByRole("button", { name: "30D", exact: true }).click();
     await expect(page.getByText(/30 production days/)).toBeVisible();
 
-    const monthTotal = await readTileValue(page, "Total production");
+    const monthTotal = await readTileValue(page, "Vehicles produced");
     expect(monthTotal).toBeGreaterThan(dayTotal);
 
     // Trend switches to daily buckets.
-    await expect(page.getByText(/Panels produced per day/)).toBeVisible();
+    await expect(page.getByText(/Per day, by factory/).first()).toBeVisible();
 
     expect(page.url()).toContain("range=30d");
 
@@ -257,12 +263,12 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     const errors = watchConsole(page);
     await openOverview(page);
 
-    const dayTotal = await readTileValue(page, "Total production");
+    const dayTotal = await readTileValue(page, "Vehicles produced");
 
     await page.getByRole("button", { name: "A", exact: true }).click();
     await expect(page.getByText(/shift A/)).toBeVisible();
 
-    const shiftTotal = await readTileValue(page, "Total production");
+    const shiftTotal = await readTileValue(page, "Vehicles produced");
     expect(shiftTotal).toBeLessThan(dayTotal);
     expect(shiftTotal).toBeGreaterThan(0);
 
@@ -291,10 +297,8 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     const errors = watchConsole(page);
     await openOverview(page);
 
-    await page.getByRole("link", { name: /Mahindra Nashik Plant/ }).first().click();
-    await page.waitForURL("**/plant/nashik/**");
-
-    await expect(page.getByRole("heading", { name: "Mahindra Nashik Plant" })).toBeVisible();
+    await page.goto("/factory/nashik/thar/press-shop/");
+    await expect(page.getByRole("heading", { name: "Press shop", level: 1 })).toBeVisible();
 
     // The 3D scene mounts a real WebGL canvas.
     const canvas = page.locator("canvas");
@@ -315,15 +319,16 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
       await expect(page.getByText(op).first()).toBeVisible();
     }
 
-    // The five metric families the brief asks for, per process.
-    await expect(page.getByText("Current status")).toBeVisible();
-    await expect(page.getByText("Effectiveness")).toBeVisible();
-    await expect(page.getByText("Equipment health")).toBeVisible();
+    // The five metric families the brief asks for, per station. Scoped with
+    // .first(): "Effectiveness" also appears in the chart subtitles on this page.
+    await expect(page.getByText("Current status").first()).toBeVisible();
+    await expect(page.getByText("Effectiveness").first()).toBeVisible();
+    await expect(page.getByText("Equipment health").first()).toBeVisible();
     await expect(page.getByText("Energy", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("Quality output")).toBeVisible();
+    await expect(page.getByText("Quality output").first()).toBeVisible();
 
-    await expect(page.getByText("Process station matrix")).toBeVisible();
-    await expect(page.getByText("Downtime by cause")).toBeVisible();
+    await expect(page.getByText("Process station matrix").first()).toBeVisible();
+    await expect(page.getByText("Downtime by cause").first()).toBeVisible();
 
     // Give the scene a moment to render a frame before capturing.
     await page.waitForTimeout(2500);
@@ -335,8 +340,8 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
 
   test("selecting a station and a line updates the detail panel", async ({ page }) => {
     const errors = watchConsole(page);
-    await page.goto("/plant/chakan/");
-    await expect(page.getByRole("heading", { name: "Mahindra Chakan Plant" })).toBeVisible();
+    await page.goto("/factory/chakan/scorpio-n/press-shop/");
+    await expect(page.getByRole("heading", { name: "Press shop", level: 1 })).toBeVisible();
     await expect(page.locator("canvas")).toBeVisible({ timeout: 30_000 });
 
     // Default selection is the draw press.
@@ -360,20 +365,115 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     await openOverview(page);
 
     await page.getByRole("button", { name: "Show data table view" }).first().click();
-    await expect(page.getByRole("columnheader", { name: "Hour" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Hour" }).first()).toBeVisible();
 
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
 
-  test("rejection reasons drill down to a corrective action", async ({ page }) => {
+  test("recommendations expand to a measurement and an action, and filter", async ({
+    page,
+  }) => {
     const errors = watchConsole(page);
     await openOverview(page);
 
-    const pareto = page.locator("section", { hasText: "Rejection Pareto" }).first();
-    await pareto.locator("button[aria-expanded]").first().click();
-    await expect(page.getByText("Corrective action:").first()).toBeVisible();
+    const panel = page.locator("section", { hasText: "Factory → process insights" }).first();
+
+    // Every insight states what was measured before what to do about it.
+    await panel.locator("li button[aria-expanded]").first().click();
+    await expect(panel.getByText("Recommendation:").first()).toBeVisible();
+
+    // Filtering by factory narrows the list to that factory only.
+    const before = await panel.locator("li").count();
+    await panel.getByRole("combobox", { name: "Factory" }).selectOption("nashik");
+    const rows = panel.locator("li");
+    expect(await rows.count()).toBeLessThanOrEqual(before);
+    for (const text of await rows.locator("span", { hasText: "›" }).allInnerTexts()) {
+      expect(text).toContain("Nashik");
+    }
 
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
+  });
+
+  test("metric tiles open into their per-factory split", async ({ page }) => {
+    await openOverview(page);
+
+    const tile = page
+      .locator("div", { hasText: /^Vehicles produced$/ })
+      .locator("xpath=ancestor::div[contains(@class,'rounded-lg')][1]")
+      .first();
+
+    await tile.getByRole("button", { name: /Split across 5 factories/ }).click();
+
+    // Every factory is listed, and each row links into that factory.
+    const links = tile.locator("a[href*='/factory/']");
+    await expect(links).toHaveCount(5);
+    await links.first().click();
+    await page.waitForURL("**/factory/**");
+    await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toBeVisible();
+  });
+
+  test("chart legends toggle a factory in and out of the series", async ({ page }) => {
+    await openOverview(page);
+
+    const chart = page.locator("section", { hasText: "Per hour, by factory" }).first();
+
+    // Everything is on by default, including the pan-India aggregate.
+    const all = chart.getByRole("button", { name: "All factories" });
+    const nashik = chart.getByRole("button", { name: "Nashik", exact: true });
+    await expect(all).toHaveAttribute("aria-pressed", "true");
+    await expect(nashik).toHaveAttribute("aria-pressed", "true");
+
+    await nashik.click();
+    await expect(nashik).toHaveAttribute("aria-pressed", "false");
+
+    await nashik.click();
+    await expect(nashik).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("factory page lists its models as tabs and opens a model process page", async ({
+    page,
+  }) => {
+    const errors = watchConsole(page);
+    await page.goto("/factory/nashik/");
+
+    await expect(page.getByRole("heading", { name: "Nashik", level: 1 })).toBeVisible();
+
+    // Nashik builds three models.
+    const tabs = page.getByRole("tab");
+    await expect(tabs).toHaveCount(3);
+    await expect(page.getByRole("tab", { name: /Thar ROXX/ })).toBeVisible();
+
+    // Switching model re-scopes the per-model figures.
+    await page.getByRole("tab", { name: /XUV700/ }).click();
+    await expect(page.getByRole("tab", { name: /XUV700/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(page.url()).toContain("sku=xuv700");
+
+    // Every model runs the same chain; open one process for this model.
+    await page.getByRole("link", { name: /Paint shop/ }).first().click();
+    await page.waitForURL("**/factory/nashik/xuv700/paint-shop/**");
+
+    await expect(page.getByRole("heading", { name: "Paint shop", level: 1 })).toBeVisible();
+    await expect(page.getByText("XUV700").first()).toBeVisible();
+
+    // The breadcrumb trail is the platform's flow, all four levels of it.
+    const crumbs = page.getByRole("navigation", { name: "Breadcrumb" });
+    await expect(crumbs.getByRole("link", { name: "Pan-India overview" })).toBeVisible();
+    await expect(crumbs.getByRole("link", { name: "Nashik" })).toBeVisible();
+    await expect(crumbs.getByRole("link", { name: "XUV700" })).toBeVisible();
+    await expect(crumbs.getByText("Paint shop")).toBeVisible();
+
+    await page.screenshot({ path: `${SHOTS}/10-factory-sku-process.png`, fullPage: true });
+    expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
+  });
+
+  test("a model a factory does not build has no page", async ({ page }) => {
+    // Nashik does not build the Bolero Neo, so the export has no such route and
+    // the static host falls through to the app shell rather than a real page.
+    await page.goto("/factory/nashik/bolero-neo/paint-shop/");
+    await expect(page.getByRole("heading", { name: "Paint shop", level: 1 })).toHaveCount(0);
   });
 
   test("portal is responsive at tablet width", async ({ page }) => {
