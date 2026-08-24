@@ -30,9 +30,12 @@ import { TooltipCard } from "@/components/charts/ChartFrame";
 export function ProductionSplitChart({
   factories,
   height = 300,
+  /** Rendered inside a metric card, at roughly a fifth of the row. */
+  compact = false,
 }: {
   factories: FactoryRow[];
   height?: number;
+  compact?: boolean;
 }) {
   const data = factories.map((f) => ({
     plantId: f.plantId,
@@ -48,23 +51,38 @@ export function ProductionSplitChart({
   return (
     <div style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 12, right: 12, bottom: 28, left: 4 }}>
+        <BarChart
+          data={data}
+          margin={
+            compact
+              ? { top: 8, right: 2, bottom: 22, left: 0 }
+              : { top: 12, right: 12, bottom: 28, left: 4 }
+          }
+          barCategoryGap={compact ? "12%" : "20%"}
+        >
           <CartesianGrid {...GRID_PROPS} />
           <XAxis
             dataKey="label"
             {...AXIS_PROPS}
             interval={0}
-            height={46}
+            height={compact ? 38 : 46}
             tick={(tickProps) => (
               <FactoryTick
                 x={Number(tickProps.x)}
                 y={Number(tickProps.y)}
                 payload={tickProps.payload}
                 rows={data}
+                compact={compact}
               />
             )}
           />
-          <YAxis {...AXIS_PROPS} width={52} tickFormatter={(v: number) => fmtInt(v)} />
+          <YAxis
+            {...AXIS_PROPS}
+            width={compact ? 34 : 52}
+            tick={{ fill: COLORS.textMuted, fontSize: compact ? 9 : 11 }}
+            tickCount={compact ? 4 : 5}
+            tickFormatter={(v: number) => (compact ? compactInt(v) : fmtInt(v))}
+          />
           <Tooltip
             cursor={{ fill: COLORS.surface3, opacity: 0.35 }}
             content={({ active, payload }) => {
@@ -90,7 +108,12 @@ export function ProductionSplitChart({
             }}
           />
 
-          <Bar dataKey="produced" radius={[4, 4, 0, 0]} maxBarSize={72} isAnimationActive={false}>
+          <Bar
+            dataKey="produced"
+            radius={[4, 4, 0, 0]}
+            maxBarSize={compact ? 34 : 72}
+            isAnimationActive={false}
+          >
             {data.map((d) => (
               <Cell key={d.plantId} fill={d.color} />
             ))}
@@ -123,8 +146,15 @@ function FactoryTick(props: {
   y?: number;
   payload?: { value?: string; index?: number };
   rows: { label: string; change: number | null }[];
+  compact?: boolean;
 }) {
-  const { x = 0, y = 0, payload, rows } = props;
+  const { x = 0, y = 0, payload, rows, compact = false } = props;
+  const nameSize = compact ? 9 : 11;
+  const changeSize = compact ? 9 : 11;
+  // Ten characters is what fits in a category slot at this width; every current
+  // factory name clears it, and the bar's own tooltip carries the full name if
+  // a longer one is ever added.
+  const name = compact ? (payload?.value ?? "").slice(0, 10) : (payload?.value ?? "");
   const row = rows[payload?.index ?? -1];
   const change = row?.change ?? null;
   const up = (change ?? 0) >= 0;
@@ -132,11 +162,23 @@ function FactoryTick(props: {
 
   return (
     <g transform={`translate(${x},${y})`}>
-      <text y={12} textAnchor="middle" fill={COLORS.textSecondary} fontSize={11} fontWeight={500}>
-        {payload?.value}
+      <text
+        y={compact ? 10 : 12}
+        textAnchor="middle"
+        fill={COLORS.textSecondary}
+        fontSize={nameSize}
+        fontWeight={500}
+      >
+        {name}
       </text>
       {change === null ? null : (
-        <text y={27} textAnchor="middle" fill={colour} fontSize={11} fontWeight={600}>
+        <text
+          y={compact ? 23 : 27}
+          textAnchor="middle"
+          fill={colour}
+          fontSize={changeSize}
+          fontWeight={600}
+        >
           {/* Arrow first, sign in the text: direction survives without colour. */}
           {up ? "\u25B2" : "\u25BC"} {Math.abs(change * 100).toFixed(1)}%
         </text>
@@ -180,6 +222,11 @@ function BenchmarkRule(props: {
       />
     </g>
   );
+}
+
+/** Short y-axis ticks: 1.2k rather than 1,200, which does not fit at this width. */
+function compactInt(v: number): string {
+  return Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(1)}k` : fmtInt(v);
 }
 
 function signed(v: number): string {

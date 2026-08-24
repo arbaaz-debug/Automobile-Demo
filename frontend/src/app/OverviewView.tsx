@@ -1,8 +1,8 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useState } from "react";
-import { Lightbulb, Route, SignpostBig } from "lucide-react";
+import { useCallback, useId, useState } from "react";
+import { ChevronDown, Lightbulb, Route, SignpostBig } from "lucide-react";
 import { PLANT_BY_ID, PLANTS } from "@/domain/stamping/catalog";
 import { useFilterState, useOverview } from "@/hooks/useOverview";
 import { AppShell } from "@/components/layout/AppShell";
@@ -116,10 +116,9 @@ export function OverviewView() {
   const filters = useFilterState(searchParams, push);
   const { data, loading, updatedAt, refresh } = useOverview(filters);
 
-  // Which metric's split is open. Production first — it is the number everyone
-  // asks about, and its chart carries the benchmark comparison.
-  const [activeMetricId, setActiveMetricId] = useState<string | null>("produced");
-  const activeMetric = METRICS.find((m) => m.id === activeMetricId) ?? null;
+  // Which metric accordions are open. All closed by default — the page opens on
+  // the numbers, and the graphs are there when someone asks for them.
+  const [openMetricIds, setOpenMetricIds] = useState<Set<string>>(() => new Set());
 
   const search = searchParams?.toString() ?? "";
   const scopeName =
@@ -162,45 +161,30 @@ export function OverviewView() {
             </p>
           </header>
 
-          {/* --- headline metrics, each opening into its own split chart ----
-              The tiles are the summary and the selector: pressing one opens
-              that metric's split below, full width. Rendering five charts at
-              once would bury the numbers they belong to. */}
+          {/* --- headline metrics, each its own accordion --------------------
+              Every card opens its own graph in place, at the card's width, and
+              all start closed. `items-start` keeps the unopened cards at their
+              natural height rather than stretching them to match an open
+              neighbour. */}
 
-          <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="mb-6 grid grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {METRICS.map((m) => (
-              <MetricTile
+              <MetricAccordion
                 key={m.id}
                 metric={m}
                 data={data}
-                selected={m.id === activeMetricId}
-                onSelect={() => setActiveMetricId(m.id === activeMetricId ? null : m.id)}
+                open={openMetricIds.has(m.id)}
+                onToggle={() =>
+                  setOpenMetricIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(m.id)) next.delete(m.id);
+                    else next.add(m.id);
+                    return next;
+                  })
+                }
               />
             ))}
           </div>
-
-          {activeMetric ? (
-            <Card className="mb-6">
-              <CardHeader
-                title={`${activeMetric.label} by factory`}
-                subtitle={`${scopeName} · ${data.windowLabel}`}
-                action={
-                  <button
-                    type="button"
-                    onClick={() => setActiveMetricId(null)}
-                    className="rounded border border-[var(--border)] px-2 py-1 text-[10px] font-medium text-[var(--text-muted)] transition hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]"
-                  >
-                    Close
-                  </button>
-                }
-              />
-              <MetricSplitSection data={data} metric={activeMetric} />
-            </Card>
-          ) : (
-            <p className="mb-6 text-[11px] text-[var(--text-muted)]">
-              Select a metric above to see its split across all {data.plantIds.length} factories.
-            </p>
-          )}
 
           {/* --- roadblocks + recommendations -------------------------------
               Side by side: the left card says where output is being lost, the
@@ -274,73 +258,85 @@ export function OverviewView() {
 }
 
 /**
- * A headline number that is also the selector for its split chart.
+ * A headline number that opens its own graph in place.
  *
- * Pressed state is carried by the border and `aria-pressed`, not by colour
- * alone, so which metric is open survives a colour-blind reading.
+ * The graph is constrained to the card rather than breaking out to full width,
+ * so the number and the split it belongs to stay together. Pressed state is
+ * carried by the chevron and `aria-expanded`, not colour alone.
  */
-function MetricTile({
+function MetricAccordion({
   metric,
   data,
-  selected,
-  onSelect,
+  open,
+  onToggle,
 }: {
   metric: MetricDef;
   data: NonNullable<ReturnType<typeof useOverview>["data"]>;
-  selected: boolean;
-  onSelect: () => void;
+  open: boolean;
+  onToggle: () => void;
 }) {
+  const id = useId();
   const value = TOTAL_FOR[metric.id](data);
   const groupDelta = groupChange(metric, data);
   const up = (groupDelta ?? 0) >= 0;
   const good = metric.inverse ? !up : up;
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-pressed={selected}
+    <div
       className={cn(
-        "relative flex flex-col overflow-hidden rounded-lg border bg-[var(--surface-1)] p-4 text-left transition",
-        selected
-          ? "border-[var(--series-1)] bg-[var(--surface-raised)]"
-          : "border-[var(--border)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)]",
+        "flex min-w-0 flex-col overflow-hidden rounded-lg border bg-[var(--surface-1)] transition",
+        open ? "border-[var(--series-1)]" : "border-[var(--border)]",
       )}
     >
-      <span className="flex items-start justify-between gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-[0.1em] text-[var(--text-muted)]">
-          {metric.label}
-        </span>
-        {selected ? (
-          <span className="text-[9px] font-semibold uppercase tracking-wider text-[var(--series-1)]">
-            Open
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={`${id}-panel`}
+        className="flex flex-col items-stretch p-4 text-left transition hover:bg-[var(--surface-raised)]"
+      >
+        <span className="flex items-start justify-between gap-2">
+          <span className="text-[11px] font-medium uppercase tracking-[0.1em] text-[var(--text-muted)]">
+            {metric.label}
           </span>
-        ) : null}
-      </span>
+          <ChevronDown
+            size={14}
+            aria-hidden
+            className={cn(
+              "shrink-0 text-[var(--text-muted)] transition-transform",
+              open && "rotate-180",
+            )}
+          />
+        </span>
 
-      <span className="mt-3 flex items-baseline gap-1.5">
-        <span className="text-[26px] font-semibold leading-none tracking-tight text-[var(--text-primary)]">
+        <span className="mt-3 text-[26px] font-semibold leading-none tracking-tight text-[var(--text-primary)]">
           {metric.format(value)}
         </span>
-      </span>
 
-      <span className="mt-2 flex items-center gap-2 text-[11px]">
-        {groupDelta === null ? (
-          <span className="text-[var(--text-muted)]">no prior window</span>
-        ) : (
-          <>
-            <span
-              className="font-semibold"
-              style={{ color: good ? STATUS_TEXT.good : STATUS_TEXT.critical }}
-            >
-              <span aria-hidden>{up ? "\u25B2" : "\u25BC"}</span>{" "}
-              {Math.abs(groupDelta * 100).toFixed(1)}%
-            </span>
-            <span className="text-[var(--text-muted)]">vs previous</span>
-          </>
-        )}
-      </span>
-    </button>
+        <span className="mt-2 flex items-center gap-2 text-[11px]">
+          {groupDelta === null ? (
+            <span className="text-[var(--text-muted)]">no prior window</span>
+          ) : (
+            <>
+              <span
+                className="font-semibold"
+                style={{ color: good ? STATUS_TEXT.good : STATUS_TEXT.critical }}
+              >
+                <span aria-hidden>{up ? "\u25B2" : "\u25BC"}</span>{" "}
+                {Math.abs(groupDelta * 100).toFixed(1)}%
+              </span>
+              <span className="text-[var(--text-muted)]">vs previous</span>
+            </>
+          )}
+        </span>
+      </button>
+
+      {open ? (
+        <div id={`${id}-panel`} className="min-w-0 border-t border-[var(--border)]">
+          <MetricSplitSection data={data} metric={metric} compact />
+        </div>
+      ) : null}
+    </div>
   );
 }
 

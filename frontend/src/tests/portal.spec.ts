@@ -35,6 +35,14 @@ async function openOverview(page: Page, query = "") {
   await expect(page.getByText("Vehicles produced", { exact: true }).first()).toBeVisible();
 }
 
+/** Expands a metric card — every accordion starts closed. */
+async function openMetric(page: Page, label: string) {
+  const card = page.locator("button[aria-expanded]").filter({ hasText: label }).first();
+  if ((await card.getAttribute("aria-expanded")) !== "true") await card.click();
+  await page.waitForTimeout(900);
+  return card;
+}
+
 test.describe("Mahindra Manufacturing Intelligence portal", () => {
   test("portal opens straight onto the pan-India overview, with no sign-in gate", async ({
     page,
@@ -93,8 +101,8 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     // Data source is disclosed.
     await expect(page.getByText("Simulated data")).toBeVisible();
 
-    // The split chart for the selected metric, and the sections below it.
-    await expect(page.getByText("Vehicles produced by factory")).toBeVisible();
+    // The graphs are behind their accordions, closed by default.
+    await expect(page.locator("svg.recharts-surface")).toHaveCount(0);
     await expect(
       page.getByText("Where output is being lost — and what to do about it"),
     ).toBeVisible();
@@ -243,9 +251,11 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     await openOverview(page);
 
     const dayTotal = await readTileValue(page, "Vehicles produced");
+    await openMetric(page, "Vehicles produced");
     await expect(page.getByText(/previous 1-day window/)).toBeVisible();
 
     await page.getByRole("button", { name: "30D", exact: true }).click();
+    await openMetric(page, "Vehicles produced");
     await expect(page.getByText(/previous 30-day window/)).toBeVisible();
 
     const monthTotal = await readTileValue(page, "Vehicles produced");
@@ -333,27 +343,25 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
 
     // Give the scene a moment to render a frame before capturing.
     await page.waitForTimeout(2500);
-    await page.screenshot({ path: `${SHOTS}/04-plant-nashik.png`, fullPage: true });
-    // Clipped page screenshot rather than locator.screenshot: the WebGL canvas
-    // renders continuously, so waiting for the element to be "stable" never
-    // settles and the capture times out.
-    await canvas.scrollIntoViewIfNeeded();
-    await page.waitForTimeout(500);
-    const view = page.viewportSize();
-    const shot = await canvas.boundingBox();
-    if (shot && view) {
-      // Clamp into the viewport: an unclamped clip that runs past the bottom is
-      // rejected as "outside the resulting image".
+    // The screenshot is an artifact, not the assertion. Capturing a page with a
+    // continuously-rendering WebGL canvas intermittently exceeds the timeout
+    // waiting for the compositor to idle, so a miss must not fail a test whose
+    // subject — a real WebGL context at a usable size — is already asserted.
+    try {
       await page.screenshot({
-        path: `${SHOTS}/05-press-line-3d.png`,
-        clip: {
-          x: Math.max(0, shot.x),
-          y: Math.max(0, shot.y),
-          width: Math.min(shot.width, view.width - Math.max(0, shot.x)),
-          height: Math.min(shot.height, view.height - Math.max(0, shot.y)),
-        },
+        path: `${SHOTS}/04-plant-nashik.png`,
+        fullPage: true,
+        timeout: 15_000,
       });
+    } catch {
+      // Artifact skipped; assertions above still stand.
     }
+    // No canvas-only capture: every screenshot path that targets this element
+    // hangs. locator.screenshot and scrollIntoViewIfNeeded wait for it to be
+    // "stable", and a clipped page.screenshot waits for the compositor to idle
+    // — neither happens while the scene renders on requestAnimationFrame. The
+    // full-page capture above already contains the 3D line, and the assertions
+    // that matter (a real WebGL context at a usable size) are above it.
 
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
@@ -385,14 +393,14 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     await openOverview(page, "?range=7d");
 
     // The line forms carry a table toggle.
-    await page.getByRole("button", { name: /^Total rejections/ }).first().click();
+    await openMetric(page, "Total rejections");
     await page.getByRole("button", { name: "Show data table view" }).first().click();
     await expect(page.getByRole("columnheader", { name: "Day" }).first()).toBeVisible();
 
     // The bar form's equivalent is its summary table, which carries the same
     // per-factory figures plus the benchmark comparison.
-    await page.getByRole("button", { name: /^Vehicles produced/ }).first().click();
-    await page.getByRole("button", { name: /Show summary/ }).click();
+    await openMetric(page, "Vehicles produced");
+    await page.getByRole("button", { name: /Show summary/ }).first().click();
     await expect(page.getByRole("columnheader", { name: "vs benchmark" })).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "vs previous" })).toBeVisible();
 
@@ -428,8 +436,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
   }) => {
     await openOverview(page, "?range=7d");
 
-    // Production opens by default and is the bar form.
-    await expect(page.getByText("Vehicles produced by factory")).toBeVisible();
+    await openMetric(page, "Vehicles produced");
 
     const bars = page.locator("svg .recharts-bar-rectangle");
     expect(await bars.count()).toBeGreaterThanOrEqual(5);
@@ -450,23 +457,53 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     expect(axis.filter((t) => /[\u25B2\u25BC]\s*\d/.test(t))).toHaveLength(5);
   });
 
-  test("metric tiles select which split is shown", async ({ page }) => {
+  test("each metric is its own accordion, closed by default", async ({ page }) => {
     await openOverview(page, "?range=7d");
 
-    const production = page.getByRole("button", { name: /^Vehicles produced/ }).first();
-    const oee = page.getByRole("button", { name: /^Group OEE/ }).first();
+    const production = page
+      .locator("button[aria-expanded]")
+      .filter({ hasText: "Vehicles produced" })
+      .first();
+    const oee = page.locator("button[aria-expanded]").filter({ hasText: "Group OEE" }).first();
 
-    await expect(production).toHaveAttribute("aria-pressed", "true");
+    // Nothing is open on arrival — no chart is rendered at all.
+    await expect(production).toHaveAttribute("aria-expanded", "false");
+    await expect(oee).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator("svg.recharts-surface")).toHaveCount(0);
 
+    // Opening one does not close another: they are independent.
+    await production.click();
+    await page.waitForTimeout(800);
     await oee.click();
-    await expect(oee).toHaveAttribute("aria-pressed", "true");
-    await expect(production).toHaveAttribute("aria-pressed", "false");
-    await expect(page.getByText("Group OEE by factory")).toBeVisible();
+    await page.waitForTimeout(800);
+    await expect(production).toHaveAttribute("aria-expanded", "true");
+    await expect(oee).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator("svg.recharts-surface")).toHaveCount(2);
 
-    // Pressing the open one again closes the split.
-    await oee.click();
-    await expect(oee).toHaveAttribute("aria-pressed", "false");
-    await expect(page.getByText(/Select a metric above/)).toBeVisible();
+    // Clicking again closes.
+    await production.click();
+    await page.waitForTimeout(600);
+    await expect(production).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator("svg.recharts-surface")).toHaveCount(1);
+  });
+
+  test("an open graph stays within its card and does not overflow the page", async ({
+    page,
+  }) => {
+    await openOverview(page, "?range=7d");
+    const card = await openMetric(page, "Vehicles produced");
+
+    const cardBox = await card.evaluateHandle((el) => el.parentElement!);
+    const outer = await (cardBox.asElement() as never as { boundingBox: () => Promise<{ width: number }> }).boundingBox();
+    const chart = await page.locator("svg.recharts-surface").first().boundingBox();
+
+    // The graph is sized to the card, not broken out to full width.
+    expect(chart!.width).toBeLessThanOrEqual(outer!.width + 1);
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(1);
   });
 
   test("x-axis frequency follows the selected range", async ({ page }) => {
@@ -484,8 +521,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     ] as const) {
       await page.goto(`/?range=${range}`);
       await page.waitForTimeout(1500);
-      await page.getByRole("button", { name: /^Avg production \/ day/ }).first().click();
-      await page.waitForTimeout(1200);
+      await openMetric(page, "Avg production / day");
       const labels = await axisLabels();
       expect(labels.some((l) => pattern.test(l)), `${range} axis: ${labels.join(",")}`).toBe(
         true,
@@ -496,7 +532,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
   test("chart legends toggle a factory in and out of the series", async ({ page }) => {
     await openOverview(page);
 
-    await page.getByRole("button", { name: /^Total rejections/ }).first().click();
+    await openMetric(page, "Total rejections");
     const chart = page.locator("section", { hasText: "Vehicles rejected at any process" }).first();
 
     // Everything is on by default, including the pan-India aggregate.
@@ -677,7 +713,7 @@ async function readTileValue(page: Page, label: string): Promise<number> {
   // The headline tiles are buttons (they select their split chart), and the
   // value sits immediately before the change arrow.
   const text = await page
-    .locator("button[aria-pressed]")
+    .locator("button[aria-expanded]")
     .filter({ hasText: label })
     .first()
     .innerText();

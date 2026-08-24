@@ -44,9 +44,16 @@ const BUCKET_WORD: Record<Granularity, string> = {
 export function MetricSplitSection({
   data,
   metric,
+  /**
+   * Rendered inside a metric card rather than full width. Shrinks the chart and
+   * its chrome to suit roughly a fifth of the row — at that width the default
+   * axis fonts and margins eat the plot area entirely.
+   */
+  compact = false,
 }: {
   data: OverviewData;
   metric: MetricDef;
+  compact?: boolean;
 }) {
   const [summaryOpen, setSummaryOpen] = useState(false);
 
@@ -59,11 +66,20 @@ export function MetricSplitSection({
     <div>
       {metric.form === "bar" ? (
         <>
-          <p className="px-4 pb-1 pt-3 text-[11px] text-[var(--text-muted)]">
+          <p
+            className={cn(
+              "text-[var(--text-muted)]",
+              compact ? "px-3 pb-1 pt-2 text-[10px] leading-snug" : "px-4 pb-1 pt-3 text-[11px]",
+            )}
+          >
             {metric.subtitle} · dashed rule is each factory&rsquo;s scheduled programme; the figure
             under the name is the change against the previous {data.totals.days}-day window.
           </p>
-          <ProductionSplitChart factories={data.factories} />
+          <ProductionSplitChart
+            factories={data.factories}
+            compact={compact}
+            height={compact ? 230 : 300}
+          />
         </>
       ) : (
         <FactorySeriesChart
@@ -75,6 +91,8 @@ export function MetricSplitSection({
           seriesByFactory={data.seriesByFactory}
           bucket={data.bucket}
           className="border-0 bg-transparent"
+          height={compact ? 190 : 260}
+          compact={compact}
         />
       )}
 
@@ -84,7 +102,10 @@ export function MetricSplitSection({
         type="button"
         onClick={() => setSummaryOpen((v) => !v)}
         aria-expanded={summaryOpen}
-        className="flex w-full items-center justify-between gap-2 border-t border-[var(--border)] px-4 py-2 text-[11px] font-medium text-[var(--text-muted)] transition hover:bg-[var(--surface-3)]/50 hover:text-[var(--text-primary)]"
+        className={cn(
+          "flex w-full items-center justify-between gap-2 border-t border-[var(--border)] font-medium text-[var(--text-muted)] transition hover:bg-[var(--surface-3)]/50 hover:text-[var(--text-primary)]",
+          compact ? "px-3 py-1.5 text-[10px]" : "px-4 py-2 text-[11px]",
+        )}
       >
         <span>{summaryOpen ? "Hide summary" : "Show summary"}</span>
         <ChevronDown
@@ -95,13 +116,13 @@ export function MetricSplitSection({
       </button>
 
       {summaryOpen ? (
-        <div className="border-t border-[var(--border)] px-4 py-3">
-          <p className="mb-3 text-[12px] leading-relaxed text-[var(--text-secondary)]">
+        <div className={cn("border-t border-[var(--border)]", compact ? "px-3 py-2" : "px-4 py-3")}>
+          <p className={cn("mb-3 leading-relaxed text-[var(--text-secondary)]", compact ? "text-[11px]" : "text-[12px]")}>
             {summaryText(metric, ranked, data)}
           </p>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[420px] text-[11px]">
+            <table className={cn("w-full text-[11px]", compact ? "min-w-[300px]" : "min-w-[420px]")}>
               <thead>
                 <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-[0.1em] text-[var(--text-muted)]">
                   <th scope="col" className="py-1.5 pr-3 text-left font-medium">

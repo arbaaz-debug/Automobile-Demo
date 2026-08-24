@@ -61,6 +61,8 @@ export function FactorySeriesChart({
   bucket,
   height = 260,
   className,
+  /** Rendered inside a metric card, at roughly a fifth of the row. */
+  compact = false,
 }: {
   title: string;
   subtitle?: string;
@@ -71,6 +73,7 @@ export function FactorySeriesChart({
   bucket: Granularity;
   height?: number;
   className?: string;
+  compact?: boolean;
 }) {
   const id = useId();
   const [asTable, setAsTable] = useState(false);
@@ -125,16 +128,16 @@ export function FactorySeriesChart({
       )}
       aria-labelledby={`${id}-title`}
     >
-      <header className="flex items-start justify-between gap-3 px-4 pb-2 pt-3">
+      <header className={cn("flex items-start justify-between gap-3", compact ? "px-3 pb-1 pt-2" : "px-4 pb-2 pt-3")}>
         <div className="min-w-0">
           <h3
             id={`${id}-title`}
-            className="truncate text-[13px] font-semibold tracking-tight text-[var(--text-primary)]"
+            className={cn("truncate font-semibold tracking-tight text-[var(--text-primary)]", compact ? "text-[11px]" : "text-[13px]")}
           >
             {title}
           </h3>
           {subtitle ? (
-            <p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">{subtitle}</p>
+            <p className={cn("mt-0.5 text-[var(--text-muted)]", compact ? "text-[9px] leading-snug" : "truncate text-[11px]")}>{subtitle}</p>
           ) : null}
         </div>
         <button
@@ -150,7 +153,7 @@ export function FactorySeriesChart({
       </header>
 
       {/* Legend doubles as the series filter. */}
-      <ul className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4 pb-2">
+      <ul className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 pb-2", compact ? "px-3" : "px-4")}>
         {legend.map((l) => {
           const off = hidden.has(l.key);
           return (
@@ -161,7 +164,8 @@ export function FactorySeriesChart({
                 aria-pressed={!off}
                 title={off ? `Show ${l.name}` : `Hide ${l.name}`}
                 className={cn(
-                  "flex items-center gap-1.5 rounded border px-1.5 py-0.5 text-[11px] transition",
+                  "flex items-center gap-1.5 rounded border px-1.5 py-0.5 transition",
+                  compact ? "text-[9px]" : "text-[11px]",
                   off
                     ? "border-transparent text-[var(--text-muted)] opacity-55 hover:opacity-80"
                     : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)]/60",
@@ -196,17 +200,27 @@ export function FactorySeriesChart({
         ) : (
           <div style={{ height }}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+              <LineChart
+                data={data}
+                margin={
+                  compact
+                    ? { top: 6, right: 6, bottom: 2, left: 0 }
+                    : { top: 8, right: 12, bottom: 4, left: 4 }
+                }
+              >
                 <CartesianGrid {...GRID_PROPS} />
                 <XAxis
                   dataKey="label"
                   {...AXIS_PROPS}
+                  tick={{ fill: COLORS.textMuted, fontSize: compact ? 9 : 11 }}
                   interval="preserveStartEnd"
-                  minTickGap={24}
+                  minTickGap={compact ? 44 : 24}
                 />
                 <YAxis
                   {...AXIS_PROPS}
-                  width={48}
+                  tick={{ fill: COLORS.textMuted, fontSize: compact ? 9 : 11 }}
+                  tickCount={compact ? 4 : 5}
+                  width={compact ? 34 : 48}
                   domain={metricDef.isRate ? [0, 100] : undefined}
                   tickFormatter={(v: number) =>
                     metricDef.format(unscale(v, metricDef.isRate))
