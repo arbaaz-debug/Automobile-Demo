@@ -95,6 +95,15 @@ export interface MetricSplitRow {
   share: number;
 }
 
+export type Granularity = "hour" | "day" | "week" | "month";
+
+/** How a metric moved against the immediately preceding window of equal length. */
+export interface Delta {
+  /** Fractional change, e.g. 0.04 for +4%. Null when there is no prior value. */
+  change: number | null;
+  previous: number;
+}
+
 export interface FactoryRow {
   plantId: string;
   /** Location only, e.g. "Nashik". */
@@ -120,6 +129,21 @@ export interface FactoryRow {
   worstProcessId: string;
   worstProcessName: string;
   worstOee: number;
+  /**
+   * The build programme this factory was scheduled against, in vehicles.
+   * Used as the benchmark line on the production chart — a real target the
+   * plant was given, not an arbitrary round number.
+   */
+  benchmark: number;
+  benchmarkPerDay: number;
+  /** Movement against the previous window of the same length. */
+  deltas: {
+    produced: Delta;
+    avgPerDay: Delta;
+    rejected: Delta;
+    rty: Delta;
+    oee: Delta;
+  };
 }
 
 export interface OverviewTotals {
@@ -138,7 +162,12 @@ export interface OverviewTotals {
 export interface OverviewData {
   filters: OverviewFilters;
   range: RangeDef;
-  bucket: "hour" | "day";
+  /**
+   * X-axis frequency, chosen from the range: a day is read hourly, a week
+   * daily, a month weekly, a quarter monthly. Ninety daily points on one axis
+   * is a smear; three monthly points on a week is a dot.
+   */
+  bucket: Granularity;
   windowLabel: string;
   dayKeys: string[];
   /** Pan-India aggregate trend — the "All" series. */
@@ -244,6 +273,8 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
   // day's total is spread across the hours using the press shop's own hourly
   // production shape, and still sums to the day.
 
+  const granularity = granularityFor(range.days);
+
   const hourShape =
     range.days === 1
       ? hourlyShape(filters, plantIds)
@@ -253,12 +284,18 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
     plantId,
     name: factoryLabel(plantId),
     color: FACTORY_COLOR[plantId] ?? SERIES[0],
-    points: hourShape
-      ? spreadOverHours(dailyByFactory.get(plantId)![0], hourShape.byPlant.get(plantId)!)
-      : dailyByFactory.get(plantId)!,
+    points: bucketByGranularity(
+      hourShape
+        ? spreadOverHours(dailyByFactory.get(plantId)![0], hourShape.byPlant.get(plantId)!)
+        : dailyByFactory.get(plantId)!,
+      granularity,
+    ),
   }));
 
-  const points = hourShape ? spreadOverHours(dailyAll[0], hourShape.all) : dailyAll;
+  const points = bucketByGranularity(
+    hourShape ? spreadOverHours(dailyAll[0], hourShape.all) : dailyAll,
+    granularity,
+  );
 
   // --- totals --------------------------------------------------------------
 
@@ -285,6 +322,19 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
     panels,
   };
 
+  // --- previous window, for the change indicators --------------------------
+  //
+  // The immediately preceding window of the same length, so "+4%" always means
+  // "against the last 7 days" on a 7-day view and "against the last quarter" on
+  // a 90-day one. Comparing against a fixed period instead would make the
+  // arrow mean something different on every range.
+
+  const previousDayKeys = buildDayKeys(
+    new Date(Date.parse(`${dayKeys[0]}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10),
+    range.days,
+  );
+  const previousTotals = factoryTotalsFor(plantIds, previousDayKeys, shifts, terminalId);
+
   // --- per-factory rows ----------------------------------------------------
 
   const factories: FactoryRow[] = plantIds.map((plantId) => {
@@ -296,6 +346,10 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
 
     const avgChain = summariseChain(dayKeys.map((d) => chains.get(plantId)!.get(d)!));
     const worst = avgChain.chain.reduce((a, b) => (b.oee < a.oee ? b : a));
+    const prev = previousTotals.get(plantId);
+    const oee = weightedMean(series.points, (x) => x.oee, (x) => x.produced);
+    const benchmarkPerDay =
+      avgChain.chain.find((c) => c.processId === "press-shop")?.input ?? 0;
 
     return {
       plantId,
@@ -308,7 +362,7 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
       good: g,
       rejected: r,
       rty: p > 0 ? g / p : 0,
-      oee: weightedMean(series.points, (x) => x.oee, (x) => x.produced),
+      oee,
       avgPerDay: p / days,
       share: produced > 0 ? p / produced : 0,
       chain: avgChain.chain,
@@ -318,6 +372,17 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
       worstProcessId: worst.processId,
       worstProcessName: PROCESS_BY_ID.get(worst.processId)?.name ?? "",
       worstOee: worst.oee,
+      // The press shop's input is the plant's scheduled build programme, so the
+      // benchmark is what it was actually asked to build, not a round number.
+      benchmark: benchmarkPerDay * days,
+      benchmarkPerDay,
+      deltas: {
+        produced: delta(p, prev?.produced ?? 0),
+        avgPerDay: delta(p / days, (prev?.produced ?? 0) / days),
+        rejected: delta(r, prev?.rejected ?? 0),
+        rty: delta(p > 0 ? g / p : 0, prev?.rty ?? 0),
+        oee: delta(oee, prev?.oee ?? 0),
+      },
     };
   });
   factories.sort((a, b) => b.produced - a.produced);
@@ -356,7 +421,10 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
     );
 
     seriesByProcess[def.id] = {
-      all: hourShape ? spreadOverHours(allDaily[0], hourShape.all) : allDaily,
+      all: bucketByGranularity(
+        hourShape ? spreadOverHours(allDaily[0], hourShape.all) : allDaily,
+        granularity,
+      ),
       byFactory: plantIds.map((plantId) => {
         const daily = dayKeys.map((dayKey) =>
           stepPoint(chains.get(plantId)!.get(dayKey)!, def.id, dayKey, range.days),
@@ -365,9 +433,10 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
           plantId,
           name: factoryLabel(plantId),
           color: FACTORY_COLOR[plantId] ?? SERIES[0],
-          points: hourShape
-            ? spreadOverHours(daily[0], hourShape.byPlant.get(plantId)!)
-            : daily,
+          points: bucketByGranularity(
+            hourShape ? spreadOverHours(daily[0], hourShape.byPlant.get(plantId)!) : daily,
+            granularity,
+          ),
         };
       }),
     };
@@ -376,7 +445,7 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
   return {
     filters,
     range,
-    bucket: range.days === 1 ? "hour" : "day",
+    bucket: granularity,
     windowLabel: windowLabel(filters, range, dayKeys),
     dayKeys,
     points,
@@ -557,6 +626,98 @@ function formatDayLabel(dayKey: string, days: number): string {
     return d.toLocaleDateString("en-IN", { weekday: "short", timeZone: "UTC" });
   }
   return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", timeZone: "UTC" });
+}
+
+
+/** X-axis frequency for a range. */
+export function granularityFor(days: number): Granularity {
+  if (days <= 1) return "hour";
+  if (days <= 7) return "day";
+  if (days <= 31) return "week";
+  return "month";
+}
+
+/**
+ * Regroups a daily series into weeks or months.
+ *
+ * Counts sum; rates do not — a mean of daily yields would weight a 40-vehicle
+ * day the same as a 400-vehicle one, so rates are re-weighted by production.
+ * Weeks are counted forward from the window's first day rather than by ISO
+ * week, so every bucket holds exactly seven days and the last one is not a
+ * two-day stub that reads as a collapse in output.
+ */
+function bucketByGranularity(points: OverviewPoint[], g: Granularity): OverviewPoint[] {
+  if (g === "hour" || g === "day" || points.length === 0) return points;
+
+  const groups = new Map<string, OverviewPoint[]>();
+  const firstT = points[0].t;
+
+  for (const p of points) {
+    const key =
+      g === "week"
+        ? String(Math.floor((p.t - firstT) / (7 * 86_400_000)))
+        : new Date(p.t).toISOString().slice(0, 7);
+    const list = groups.get(key) ?? [];
+    list.push(p);
+    groups.set(key, list);
+  }
+
+  return [...groups.entries()].map(([key, list]) => {
+    const produced = list.reduce((a, x) => a + x.produced, 0);
+    const start = new Date(list[0].t);
+
+    return {
+      key: `${g}-${key}`,
+      label:
+        g === "week"
+          ? `w/c ${start.toLocaleDateString("en-IN", { day: "2-digit", month: "short", timeZone: "UTC" })}`
+          : start.toLocaleDateString("en-IN", { month: "short", year: "2-digit", timeZone: "UTC" }),
+      t: list[0].t,
+      produced,
+      good: list.reduce((a, x) => a + x.good, 0),
+      rejected: list.reduce((a, x) => a + x.rejected, 0),
+      rty: weightedMean(list, (x) => x.rty, (x) => x.produced),
+      oee: weightedMean(list, (x) => x.oee, (x) => x.produced),
+    };
+  });
+}
+
+/**
+ * Per-factory totals for a window, without the series, chains or insights.
+ *
+ * Used for the previous period, where only the headline numbers are needed —
+ * building the full roll-up twice would double the cost of every overview load
+ * to produce data that is only ever shown as a percentage.
+ */
+function factoryTotalsFor(
+  plantIds: string[],
+  dayKeys: string[],
+  shifts: ShiftId[],
+  terminalId: string,
+): Map<string, { produced: number; rejected: number; rty: number; oee: number }> {
+  const out = new Map<string, { produced: number; rejected: number; rty: number; oee: number }>();
+
+  for (const plantId of plantIds) {
+    const points = dayKeys.map((dayKey) =>
+      pointFromChain(processChainForPlantDay(plantId, dayKey, shifts), dayKey, terminalId, 1),
+    );
+    const produced = sum(points, (p) => p.produced);
+    out.set(plantId, {
+      produced,
+      rejected: sum(points, (p) => p.rejected),
+      rty: produced > 0 ? sum(points, (p) => p.good) / produced : 0,
+      oee: weightedMean(points, (p) => p.oee, (p) => p.produced),
+    });
+  }
+
+  return out;
+}
+
+function delta(current: number, previous: number): Delta {
+  return {
+    previous,
+    change: previous > 0 ? (current - previous) / previous : null,
+  };
 }
 
 function sum<T>(items: T[], sel: (t: T) => number): number {

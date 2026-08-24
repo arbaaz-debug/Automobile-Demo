@@ -126,3 +126,48 @@ export function useFilterState(
     [dateIso, validRange, plantId, shiftId, set],
   );
 }
+
+/**
+ * The group-wide roll-up: every factory, every process, whatever page you are on.
+ *
+ * The pages scope themselves — a factory page loads only its own factory — but
+ * the insight assistant must not inherit that limit, or asking "which factory is
+ * worst" from inside Nashik could only ever answer "Nashik". So this deliberately
+ * overrides `plantId` to "all" and keeps the window filters, giving the assistant
+ * the whole group under the same date range the page is showing.
+ *
+ * `enabled` gates the work: a 90-day pan-India roll-up is not worth computing
+ * until someone actually opens the panel.
+ */
+export function useGroupOverview(
+  filters: OverviewFilters,
+  enabled: boolean,
+): { data: OverviewData | null; loading: boolean } {
+  const [result, setResult] = useState<{ key: string; data: OverviewData } | null>(null);
+
+  const { dateIso, rangeId, shiftId } = filters;
+  const key = `${dateIso}|${rangeId}|${shiftId}`;
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+
+    const handle = setTimeout(() => {
+      if (cancelled) return;
+      setResult({
+        key,
+        data: loadOverview({ dateIso, rangeId, shiftId, plantId: "all" }),
+      });
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [enabled, key, dateIso, rangeId, shiftId]);
+
+  return {
+    data: result?.key === key ? result.data : null,
+    loading: enabled && result?.key !== key,
+  };
+}

@@ -11,7 +11,7 @@ import {
   YAxis,
 } from "recharts";
 import { Table2, BarChart3 } from "lucide-react";
-import type { FactorySeries, OverviewPoint } from "@/services/data/overview";
+import type { FactorySeries, Granularity, OverviewPoint } from "@/services/data/overview";
 import { AXIS_PROPS, COLORS, GRID_PROPS } from "@/lib/theme";
 import { cn } from "@/lib/format";
 import { ChartTable, TooltipCard } from "@/components/charts/ChartFrame";
@@ -19,6 +19,14 @@ import { ChartTable, TooltipCard } from "@/components/charts/ChartFrame";
 /** The pan-India aggregate is drawn in ink, not a series colour — it is not a factory. */
 const ALL_COLOR = COLORS.textSecondary;
 const ALL_KEY = "__all__";
+
+/** Column header for the table view, matching the axis frequency. */
+const BUCKET_HEAD: Record<Granularity, string> = {
+  hour: "Hour",
+  day: "Day",
+  week: "Week",
+  month: "Month",
+};
 
 export type MetricKey = "produced" | "rejected" | "rty" | "oee";
 
@@ -60,7 +68,7 @@ export function FactorySeriesChart({
   metricDef: MetricDef;
   all: OverviewPoint[];
   seriesByFactory: FactorySeries[];
-  bucket: "hour" | "day";
+  bucket: Granularity;
   height?: number;
   className?: string;
 }) {
@@ -178,7 +186,7 @@ export function FactorySeriesChart({
         {asTable ? (
           <div className="max-h-[320px] overflow-auto px-3">
             <ChartTable
-              head={[bucket === "hour" ? "Hour" : "Day", ...visible.map((l) => l.name)]}
+              head={[BUCKET_HEAD[bucket], ...visible.map((l) => l.name)]}
               rows={data.map((row) => [
                 String(row.label),
                 ...visible.map((l) => metricDef.format(unscale(Number(row[l.key]), metricDef.isRate))),

@@ -18,8 +18,8 @@ import {
   type InsightScope,
 } from "@/domain/manufacturing/assistant";
 import type { InfluenceReading } from "@/domain/manufacturing/influence";
-import { PROCESS_BY_ID } from "@/domain/manufacturing/processes";
-import type { OverviewData } from "@/services/data/overview";
+import type { OverviewFilters } from "@/services/data/overview";
+import { useGroupOverview } from "@/hooks/useOverview";
 import { cn } from "@/lib/format";
 import { STATUS, STATUS_TEXT } from "@/lib/theme";
 import { routes } from "@/lib/routes";
@@ -53,13 +53,17 @@ export function InsightPanel({
   open,
   onClose,
   scope,
-  data,
+  filters,
 }: {
   open: boolean;
   onClose: () => void;
   scope: InsightScope;
-  data: OverviewData | null;
+  filters: OverviewFilters;
 }) {
+  // Rolled up here, pan-India, rather than taken from the page — a factory page
+  // only loads its own factory, and inheriting that would make "which factory is
+  // worst" unanswerable from anywhere except the overview.
+  const { data } = useGroupOverview(filters, open);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -177,20 +181,132 @@ export function InsightPanel({
                 ) : null}
               </Section>
 
-              <Section title="What affects this">
-                <p className="mb-2 text-[11px] leading-relaxed text-[var(--text-muted)]">
-                  {briefing.influenceNote}
-                </p>
-                {briefing.upstream.length === 0 && briefing.downstream.length === 0 ? (
-                  <ChainSummary data={data} />
-                ) : (
-                  <ul className="space-y-1.5">
-                    {[...briefing.upstream, ...briefing.downstream].map((i) => (
-                      <InfluenceRow key={`${i.direction}-${i.def.id}`} reading={i} />
-                    ))}
-                  </ul>
-                )}
+              <Section title={`All ${briefing.factories.length} factories`}>
+                <ul className="space-y-1">
+                  {briefing.factories.map((f) => (
+                    <li key={f.plantId}>
+                      <Link
+                        href={routes.plant(f.plantId, null)}
+                        className="block rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 transition hover:bg-[var(--surface-3)]/60"
+                      >
+                        <span
+                          className="text-[12px] font-semibold"
+                          style={{ color: TONE[f.tone ?? "neutral"] }}
+                        >
+                          {f.name}
+                        </span>
+                        <span className="mt-0.5 block text-[10px] text-[var(--text-muted)]">
+                          {f.detail}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
               </Section>
+
+              <Section title={`All ${briefing.processes.length} processes`}>
+                <ul className="space-y-1">
+                  {briefing.processes.map((pr) => (
+                    <li key={pr.processId}>
+                      <Link
+                        href={routes.process(pr.processId, null)}
+                        className="flex items-baseline gap-1.5 rounded px-1.5 py-1 transition hover:bg-[var(--surface-3)]/60"
+                      >
+                        {/* Glyph, not colour, marks the constraint. */}
+                        <span
+                          aria-hidden
+                          className="w-2 shrink-0 text-[9px]"
+                          style={{ color: STATUS_TEXT.warning }}
+                        >
+                          {pr.isConstraint ? "\u25B2" : ""}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[11px] font-medium text-[var(--text-secondary)]">
+                            {pr.name}
+                            {pr.isConstraint ? (
+                              <span
+                                className="ml-1.5 text-[9px] font-semibold uppercase tracking-wider"
+                                style={{ color: STATUS_TEXT.warning }}
+                              >
+                                constraint
+                              </span>
+                            ) : null}
+                          </span>
+                          <span className="block text-[10px] text-[var(--text-muted)]">
+                            {pr.detail}
+                          </span>
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </Section>
+
+              {briefing.focus ? (
+                <Section title={briefing.focus.label}>
+                  <p className="text-[12px] leading-relaxed text-[var(--text-secondary)]">
+                    {briefing.focus.summary}
+                  </p>
+
+                  {briefing.focus.facts.length > 0 ? (
+                    <dl className="mt-3 grid grid-cols-2 gap-2">
+                      {briefing.focus.facts.map((f) => (
+                        <div
+                          key={f.label}
+                          className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-2"
+                        >
+                          <dt className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                            {f.label}
+                          </dt>
+                          <dd
+                            className="tabular mt-0.5 text-[13px] font-semibold"
+                            style={{ color: TONE[f.tone ?? "neutral"] }}
+                          >
+                            {f.value}
+                          </dd>
+                          {f.note ? (
+                            <dd className="text-[10px] text-[var(--text-muted)]">{f.note}</dd>
+                          ) : null}
+                        </div>
+                      ))}
+                    </dl>
+                  ) : null}
+
+                  {briefing.focus.acrossPlants.length > 0 ? (
+                    <>
+                      <p className="mb-1.5 mt-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                        This process at every factory
+                      </p>
+                      <ul className="space-y-1">
+                        {briefing.focus.acrossPlants.map((a) => (
+                          <li
+                            key={a.plantId}
+                            className="flex items-baseline justify-between gap-2 rounded px-1.5 py-1 text-[11px]"
+                          >
+                            <span style={{ color: TONE[a.tone ?? "neutral"] }}>{a.name}</span>
+                            <span className="tabular text-[10px] text-[var(--text-muted)]">
+                              {a.detail}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : null}
+
+                  {briefing.focus.upstream.length > 0 || briefing.focus.downstream.length > 0 ? (
+                    <>
+                      <p className="mb-1.5 mt-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                        What reaches it, and what depends on it
+                      </p>
+                      <ul className="space-y-1.5">
+                        {[...briefing.focus.upstream, ...briefing.focus.downstream].map((i) => (
+                          <InfluenceRow key={`${i.direction}-${i.def.id}`} reading={i} />
+                        ))}
+                      </ul>
+                    </>
+                  ) : null}
+                </Section>
+              ) : null}
 
               {briefing.recommendations.length > 0 ? (
                 <Section title="Recommendations">
@@ -292,14 +408,14 @@ export function InsightPanel({
             className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 focus-within:border-[var(--series-1)]"
           >
             <label htmlFor="insight-q" className="sr-only">
-              Ask about this page
+              Ask about any factory or process
             </label>
             <input
               id="insight-q"
               ref={inputRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="Ask about this page…"
+              placeholder="Ask about any factory or process…"
               autoComplete="off"
               className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
             />
@@ -314,8 +430,10 @@ export function InsightPanel({
           </form>
 
           <p className="mt-2 text-[10px] leading-relaxed text-[var(--text-muted)]">
-            Computed from this page&rsquo;s production model, not generated — every figure here is the
-            one on the page. It has no cost, headcount or supplier data and will say so.
+            Covers all {briefing?.factories.length ?? 0} factories and{" "}
+            {briefing?.processes.length ?? 0} processes, whichever page you opened it from. Computed
+            from the production model, not generated — it has no cost, headcount or supplier data
+            and will say so.
           </p>
         </div>
       </aside>
@@ -366,46 +484,5 @@ function InfluenceRow({ reading }: { reading: InfluenceReading }) {
       </p>
       <p className="mt-0.5 text-[10px] leading-relaxed text-[var(--text-muted)]">{reading.note}</p>
     </li>
-  );
-}
-
-/** Shown on the overview, where every process is in scope. */
-function ChainSummary({ data }: { data: OverviewData | null }) {
-  if (!data) return null;
-  const ranked = [...data.chain.chain].sort((a, b) => b.utilisation - a.utilisation);
-  const constraintId = data.chain.bottleneck.processId;
-
-  return (
-    <ul className="space-y-1">
-      {ranked.map((c) => {
-        const isConstraint = c.processId === constraintId;
-        return (
-          <li key={c.processId}>
-            <Link
-              href={routes.process(c.processId, null)}
-              className="flex items-center gap-2 rounded px-1.5 py-1 transition hover:bg-[var(--surface-3)]/60"
-            >
-              {/* Glyph, not colour, marks the constraint. */}
-              <span
-                aria-hidden
-                className="w-2 shrink-0 text-[9px]"
-                style={{ color: STATUS_TEXT.warning }}
-              >
-                {isConstraint ? "\u25B2" : ""}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-secondary)]">
-                {PROCESS_BY_ID.get(c.processId)?.name ?? c.processId}
-              </span>
-              <span
-                className="tabular shrink-0 text-[10px]"
-                style={{ color: isConstraint ? STATUS_TEXT.warning : "var(--text-muted)" }}
-              >
-                {(c.utilisation * 100).toFixed(0)}% of capacity
-              </span>
-            </Link>
-          </li>
-        );
-      })}
-    </ul>
   );
 }

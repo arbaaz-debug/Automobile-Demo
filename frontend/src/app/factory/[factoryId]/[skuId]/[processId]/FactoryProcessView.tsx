@@ -120,7 +120,7 @@ export function FactoryProcessView({
       search={search}
       showFactoryFilter={false}
       insightScope={{ kind: "factory-process", factoryId, skuId, processId }}
-      insightData={data}
+      insightFilters={filters}
     >
       {!data || !factory || !metrics || !processSeries ? (
         <PageSkeleton />

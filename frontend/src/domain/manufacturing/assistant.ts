@@ -19,7 +19,7 @@
 import { PLANT_BY_ID } from "@/domain/stamping/catalog";
 import { PROCESS_BY_ID } from "./processes";
 import { readInfluence, type InfluenceReading } from "./influence";
-import { insightsForPlant, type Insight } from "./insights";
+import type { Insight } from "./insights";
 import { VEHICLE_SKU_BY_ID } from "./vehicles";
 import type { OverviewData } from "@/services/data/overview";
 
@@ -40,177 +40,213 @@ export interface Fact {
 export interface Briefing {
   title: string;
   scopeLine: string;
-  /** One-paragraph read of the page. */
+  /** The group read — always every factory and every process. */
   summary: string;
   facts: Fact[];
-  /** Processes that affect what this page reports. */
+  /** Every factory, ranked worst-first by effectiveness. */
+  factories: { name: string; plantId: string; detail: string; tone: Fact["tone"] }[];
+  /** Every process group-wide, ranked by how close it is to its ceiling. */
+  processes: { processId: string; name: string; detail: string; isConstraint: boolean }[];
+  /**
+   * The page you opened this from, set in the context of the group. Absent on
+   * the overview, where the group read *is* the page.
+   */
+  focus: Focus | null;
+  recommendations: Insight[];
+}
+
+export interface Focus {
+  label: string;
+  summary: string;
+  facts: Fact[];
+  /** Chain influence, when the focus is a process. */
   upstream: InfluenceReading[];
   downstream: InfluenceReading[];
-  /** Where the influence set is not meaningful (the overview covers everything). */
-  influenceNote: string;
-  recommendations: Insight[];
+  /** The same process at every other factory, when the focus is a process. */
+  acrossPlants: { plantId: string; name: string; detail: string; tone: Fact["tone"] }[];
 }
 
 // ---------------------------------------------------------------------------
 // Briefing
 // ---------------------------------------------------------------------------
 
-export function buildBriefing(scope: InsightScope, data: OverviewData): Briefing {
-  switch (scope.kind) {
-    case "overview":
-      return overviewBriefing(data);
-    case "factory":
-      return factoryBriefing(scope.factoryId, data);
-    case "process":
-      return processBriefing(scope.processId, data, null);
-    case "factory-process":
-      return processBriefing(scope.processId, data, {
-        factoryId: scope.factoryId,
-        skuId: scope.skuId,
-      });
-  }
+/**
+ * Builds the briefing.
+ *
+ * `group` is always the pan-India roll-up regardless of which page called this —
+ * the assistant answers for the whole of Mahindra, and the page only decides
+ * what gets highlighted inside that. Scoping the assistant to the page would
+ * mean "which factory is worst" could only ever answer with the factory you are
+ * already looking at.
+ */
+export function buildBriefing(scope: InsightScope, group: OverviewData): Briefing {
+  const base = groupRead(group);
+  return { ...base, focus: buildFocus(scope, group) };
 }
 
-function overviewBriefing(data: OverviewData): Briefing {
+function groupRead(data: OverviewData): Omit<Briefing, "focus"> {
   const { chain, bottleneckDef, bottleneck } = data.chain;
-  const worstFactory = [...data.factories].sort((a, b) => a.oee - b.oee)[0];
-  const bestFactory = [...data.factories].sort((a, b) => b.oee - a.oee)[0];
+  const byOee = [...data.factories].sort((a, b) => a.oee - b.oee);
   const worstQuality = [...chain].sort((a, b) => a.ftt - b.ftt)[0];
+  const spread =
+    byOee.length > 1 ? byOee[byOee.length - 1].oee - byOee[0].oee : 0;
 
   return {
-    title: "Pan-India overview",
-    scopeLine: `${data.plantIds.length} factories · ${data.windowLabel}`,
+    title: "Mahindra · all factories",
+    scopeLine: `${data.plantIds.length} factories · ${chain.length} processes · ${data.windowLabel}`,
     summary:
-      `Across ${data.plantIds.length} factories the group built ${int(data.totals.produced)} vehicles ` +
-      `(${int(data.totals.avgPerDay)}/day) at ${pct(data.totals.oee)} OEE, rejecting ${int(data.totals.rejected)} ` +
-      `along the way. ${bottleneckDef.name} is the constraint at ${pct(bottleneck.utilisation)} of capacity — ` +
-      `it sets the build rate, so nothing downstream of it can run faster than it delivers. ` +
-      `${PROCESS_BY_ID.get(worstQuality.processId)?.name} is the weakest link on quality at ${pct(worstQuality.ftt)} first-time-through.`,
+      `Across all ${data.plantIds.length} factories the group built ${int(data.totals.produced)} vehicles ` +
+      `(${int(data.totals.avgPerDay)}/day) at ${pct(data.totals.oee)} OEE and ${pct(data.totals.rty)} rolled yield, ` +
+      `rejecting ${int(data.totals.rejected)} along the way. ${bottleneckDef.name} is the group constraint at ` +
+      `${pct(bottleneck.utilisation)} of capacity — it sets the build rate everywhere, so nothing downstream can ` +
+      `run faster than it delivers. ${PROCESS_BY_ID.get(worstQuality.processId)?.name} is the weakest process on ` +
+      `quality at ${pct(worstQuality.ftt)} first-time-through. ` +
+      (byOee.length > 1
+        ? `${byOee[0].name} is the weakest factory at ${pct(byOee[0].oee)} OEE against ${byOee[byOee.length - 1].name} ` +
+          `at ${pct(byOee[byOee.length - 1].oee)} — a ${pct(spread)} spread, which is the cheapest improvement ` +
+          `available: it needs no capex, only bringing the tail up to what the best site already does.`
+        : ""),
     facts: [
       { label: "Vehicles built", value: int(data.totals.produced), note: `${int(data.totals.avgPerDay)} per day` },
-      { label: "Constraint", value: bottleneckDef.name, note: `${pct(bottleneck.utilisation)} of capacity`, tone: "warning" },
-      { label: "Rolled yield", value: pct(data.totals.rty), note: "across all 8 processes", tone: band(data.totals.rty, 0.9, 0.8) },
+      { label: "Group constraint", value: bottleneckDef.name, note: `${pct(bottleneck.utilisation)} of capacity`, tone: "warning" },
+      { label: "Rolled yield", value: pct(data.totals.rty), note: "all 8 processes", tone: band(data.totals.rty, 0.9, 0.8) },
       { label: "Group OEE", value: pct(data.totals.oee), tone: band(data.totals.oee, 0.75, 0.62) },
-      { label: "Strongest factory", value: bestFactory?.name ?? "—", note: `${pct(bestFactory?.oee ?? 0)} OEE`, tone: "good" },
-      { label: "Weakest factory", value: worstFactory?.name ?? "—", note: `${pct(worstFactory?.oee ?? 0)} OEE`, tone: "critical" },
+      { label: "Best factory", value: byOee[byOee.length - 1]?.name ?? "—", note: `${pct(byOee[byOee.length - 1]?.oee ?? 0)} OEE`, tone: "good" },
+      { label: "Worst factory", value: byOee[0]?.name ?? "—", note: `${pct(byOee[0]?.oee ?? 0)} OEE`, tone: "critical" },
     ],
-    upstream: [],
-    downstream: [],
-    influenceNote:
-      "This page covers the whole chain, so every process is in scope. The constraint below is what limits all of it.",
-    recommendations: data.insights.slice(0, 6),
+    factories: byOee.map((f) => ({
+      plantId: f.plantId,
+      name: f.name,
+      detail:
+        `${pct(f.oee)} OEE · ${int(f.avgPerDay)}/day · ${pct(f.rty)} yield · ` +
+        `blocked at ${f.bottleneckProcessName} (${pct(f.bottleneckUtilisation)})`,
+      tone: band(f.oee, 0.75, 0.62),
+    })),
+    processes: [...chain]
+      .sort((a, b) => b.utilisation - a.utilisation)
+      .map((c) => ({
+        processId: c.processId,
+        name: PROCESS_BY_ID.get(c.processId)?.name ?? c.processId,
+        detail: `${pct(c.utilisation)} of capacity · ${pct(c.oee)} OEE · ${pct(c.ftt)} FTT · ${int(c.produced)}/day`,
+        isConstraint: c.processId === data.chain.bottleneck.processId,
+      })),
+    recommendations: data.insights.slice(0, 8),
   };
 }
 
-function factoryBriefing(factoryId: string, data: OverviewData): Briefing {
-  const factory = data.factories.find((f) => f.plantId === factoryId) ?? data.factories[0];
-  const name = PLANT_BY_ID.get(factoryId)?.city.split(",")[0] ?? factoryId;
+/** The page you came from, read against the group. */
+function buildFocus(scope: InsightScope, group: OverviewData): Focus | null {
+  if (scope.kind === "overview") return null;
 
-  if (!factory) {
-    return emptyBriefing(name, data.windowLabel);
+  if (scope.kind === "factory") {
+    return factoryFocus(scope.factoryId, group);
   }
 
-  const { upstream, downstream } = readInfluence(
-    factory.bottleneckProcessId,
-    factory.chain,
-    factory.bottleneckProcessId,
-  );
+  const processId = scope.processId;
+  const factoryId = scope.kind === "factory-process" ? scope.factoryId : null;
+  return processFocus(processId, factoryId, scope.kind === "factory-process" ? scope.skuId : null, group);
+}
+
+function factoryFocus(factoryId: string, group: OverviewData): Focus | null {
+  const factory = group.factories.find((f) => f.plantId === factoryId);
+  if (!factory) return null;
+
+  const ranked = [...group.factories].sort((a, b) => b.oee - a.oee);
+  const rank = ranked.findIndex((f) => f.plantId === factoryId) + 1;
+  const best = ranked[0];
+  const gap = best.oee - factory.oee;
 
   return {
-    title: name,
-    scopeLine: data.windowLabel,
+    label: `In context · ${factory.name}`,
     summary:
-      `${name} built ${int(factory.produced)} vehicles (${int(factory.avgPerDay)}/day) at ${pct(factory.oee)} OEE ` +
-      `and ${pct(factory.rty)} rolled yield. Its constraint is ${factory.bottleneckProcessName} at ` +
-      `${pct(factory.bottleneckUtilisation)} of capacity; its weakest process by effectiveness is ` +
-      `${factory.worstProcessName} at ${pct(factory.worstOee)} OEE. ` +
-      (factory.bottleneckProcessId === factory.worstProcessId
-        ? "Those are the same process, so it is both capping output and running badly — fix it first."
-        : "Those are different processes: one caps what the plant can build, the other wastes what it can."),
+      `${factory.name} ranks ${ordinal(rank)} of ${ranked.length} on OEE (${pct(factory.oee)}), building ` +
+      `${int(factory.avgPerDay)} vehicles/day — ${pct(factory.share)} of the group. Its constraint is ` +
+      `${factory.bottleneckProcessName} at ${pct(factory.bottleneckUtilisation)} of capacity. ` +
+      (rank === 1
+        ? "It is the strongest site in the group; what works here is the template for the others."
+        : `Closing the ${pct(gap)} gap to ${best.name} would be worth about ` +
+          `${int(factory.avgPerDay * (gap / Math.max(0.01, factory.oee)))} vehicles/day here alone.`),
     facts: [
-      { label: "Vehicles built", value: int(factory.produced), note: `${int(factory.avgPerDay)} per day` },
-      { label: "Share of India", value: pct(factory.share) },
+      { label: "Rank on OEE", value: `${ordinal(rank)} of ${ranked.length}`, tone: rank === 1 ? "good" : rank === ranked.length ? "critical" : "warning" },
+      { label: "Share of group", value: pct(factory.share) },
       { label: "Constraint", value: factory.bottleneckProcessName, note: `${pct(factory.bottleneckUtilisation)} of capacity`, tone: "warning" },
       { label: "Weakest process", value: factory.worstProcessName, note: `${pct(factory.worstOee)} OEE`, tone: band(factory.worstOee, 0.75, 0.62) },
-      { label: "Rolled yield", value: pct(factory.rty), tone: band(factory.rty, 0.9, 0.8) },
-      { label: "Rejections", value: int(factory.rejected), note: "at any process", tone: "critical" },
     ],
-    upstream,
-    downstream,
-    influenceNote: `What feeds and depends on ${factory.bottleneckProcessName}, this factory's constraint.`,
-    recommendations: insightsForPlant(factoryId, factory.chain).slice(0, 6),
-  };
-}
-
-function processBriefing(
-  processId: string,
-  data: OverviewData,
-  at: { factoryId: string; skuId: string } | null,
-): Briefing {
-  const def = PROCESS_BY_ID.get(processId)!;
-  const factory = at ? data.factories.find((f) => f.plantId === at.factoryId) : null;
-  const chain = factory ? factory.chain : data.chain.chain;
-  const bottleneckId = factory ? factory.bottleneckProcessId : data.chain.bottleneck.processId;
-  const step = chain.find((c) => c.processId === processId);
-
-  const where = factory
-    ? `${PLANT_BY_ID.get(at!.factoryId)?.city.split(",")[0]}${at?.skuId ? ` · ${VEHICLE_SKU_BY_ID.get(at.skuId)?.name}` : ""}`
-    : "All factories · India";
-
-  if (!step) return emptyBriefing(def.name, data.windowLabel);
-
-  const { upstream, downstream } = readInfluence(processId, chain, bottleneckId);
-  const constrainedBy = upstream.filter((u) => u.isConstraining);
-  const isBottleneck = processId === bottleneckId;
-
-  const recommendations = factory
-    ? insightsForPlant(at!.factoryId, chain).filter((i) => i.processId === processId)
-    : data.insights.filter((i) => i.processId === processId);
-
-  return {
-    title: def.name,
-    scopeLine: `${where} · ${data.windowLabel}`,
-    summary:
-      `${def.name} put ${int(step.produced)} vehicles/day through at ${pct(step.oee)} OEE and ` +
-      `${pct(step.ftt)} first-time-through, using ${pct(step.utilisation)} of its sustainable capacity. ` +
-      (isBottleneck
-        ? "It is the constraint — it sets the build rate for everything downstream, so time recovered here converts directly into vehicles."
-        : constrainedBy.length > 0
-          ? `It is not the constraint: ${constrainedBy.map((u) => u.def.name).join(" and ")} ` +
-            `${constrainedBy.length === 1 ? "caps" : "cap"} what reaches it, so ${int(step.starvedBy)} vehicles/day of its capacity sit idle. ` +
-            "Investing here buys nothing until that is released."
-          : "It is neither the constraint nor starved — it is keeping up with what it is fed."),
-    facts: [
-      { label: "Throughput", value: `${int(step.produced)}/day`, note: `${int(step.good)} good` },
-      { label: "Capacity used", value: pct(step.utilisation), note: `${int(step.capacity)}/day sustainable`, tone: step.utilisation > 0.9 ? "warning" : "neutral" },
-      { label: "OEE", value: pct(step.oee), tone: band(step.oee, 0.75, 0.62) },
-      { label: "First time through", value: pct(step.ftt), tone: band(step.ftt, 0.965, 0.94) },
-      { label: "Rejections", value: `${int(step.rejected)}/day`, tone: "critical" },
-      {
-        label: isBottleneck ? "Role in the chain" : "Idle capacity",
-        value: isBottleneck ? "Constraint" : `${int(step.starvedBy)}/day`,
-        note: isBottleneck ? "sets the build rate" : "waiting on upstream",
-        tone: isBottleneck ? "warning" : "neutral",
-      },
-    ],
-    upstream,
-    downstream,
-    influenceNote: `Everything that reaches ${def.name}, and everything that depends on it.`,
-    recommendations,
-  };
-}
-
-function emptyBriefing(title: string, windowLabel: string): Briefing {
-  return {
-    title,
-    scopeLine: windowLabel,
-    summary: "No data for this scope in the selected window.",
-    facts: [],
     upstream: [],
     downstream: [],
-    influenceNote: "",
-    recommendations: [],
+    acrossPlants: [],
   };
+}
+
+function processFocus(
+  processId: string,
+  factoryId: string | null,
+  skuId: string | null,
+  group: OverviewData,
+): Focus | null {
+  const def = PROCESS_BY_ID.get(processId);
+  const step = group.chain.chain.find((c) => c.processId === processId);
+  if (!def || !step) return null;
+
+  const { upstream, downstream } = readInfluence(
+    processId,
+    group.chain.chain,
+    group.chain.bottleneck.processId,
+  );
+
+  // The same process at every factory — this is the comparison a page scoped to
+  // one plant cannot make for itself.
+  const acrossPlants = group.factories
+    .map((f) => {
+      const at = f.chain.find((c) => c.processId === processId);
+      return { factory: f, at };
+    })
+    .filter((r) => r.at)
+    .sort((a, b) => a.at!.oee - b.at!.oee)
+    .map((r) => ({
+      plantId: r.factory.plantId,
+      name: r.factory.name,
+      detail: `${pct(r.at!.oee)} OEE · ${pct(r.at!.utilisation)} of capacity · ${pct(r.at!.ftt)} FTT`,
+      tone: band(r.at!.oee, 0.75, 0.62),
+    }));
+
+  const worst = acrossPlants[0];
+  const best = acrossPlants[acrossPlants.length - 1];
+  const here = factoryId ? acrossPlants.find((p) => p.plantId === factoryId) : null;
+  const whereLabel = factoryId
+    ? `${PLANT_BY_ID.get(factoryId)?.city.split(",")[0]}${skuId ? ` · ${VEHICLE_SKU_BY_ID.get(skuId)?.name}` : ""}`
+    : "all factories";
+
+  return {
+    label: `In context · ${def.name} (${whereLabel})`,
+    summary:
+      `Group-wide, ${def.name} runs at ${pct(step.oee)} OEE and ${pct(step.utilisation)} of capacity, putting ` +
+      `${int(step.produced)} vehicles/day through. ` +
+      (acrossPlants.length > 1
+        ? `It is worst at ${worst.name} and best at ${best.name}, so the variation is between sites, not inherent to the process. `
+        : "") +
+      (here ? `The page you are on is ${here.name}. ` : "") +
+      (processId === group.chain.bottleneck.processId
+        ? "It is the group constraint — time recovered here converts directly into vehicles everywhere."
+        : upstream.some((u) => u.isConstraining)
+          ? `It is not the constraint: ${upstream.filter((u) => u.isConstraining).map((u) => u.def.name).join(" and ")} caps what reaches it.`
+          : "It is neither the constraint nor starved."),
+    facts: [
+      { label: "Group throughput", value: `${int(step.produced)}/day` },
+      { label: "Capacity used", value: pct(step.utilisation), tone: step.utilisation > 0.9 ? "warning" : "neutral" },
+      { label: "Group OEE", value: pct(step.oee), tone: band(step.oee, 0.75, 0.62) },
+      { label: "Group FTT", value: pct(step.ftt), tone: band(step.ftt, 0.965, 0.94) },
+    ],
+    upstream,
+    downstream,
+    acrossPlants,
+  };
+}
+
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
 }
 
 // ---------------------------------------------------------------------------
@@ -230,7 +266,7 @@ export const SUGGESTED_QUESTIONS = [
   "What is holding back output?",
   "What should I fix first?",
   "Which factory is worst?",
-  "What affects this page?",
+  "What affects this?",
   "How is quality?",
   "Is it improving?",
 ];
@@ -256,39 +292,23 @@ export function answerQuestion(
 
   // --- the constraint ------------------------------------------------------
   if (has("bottleneck", "constraint", "holding back", "limiting", "cap ", "capping")) {
-    const b = briefing.facts.find((f) => f.label === "Constraint");
-    if (scope.kind === "overview" || scope.kind === "factory") {
-      const { bottleneckDef, bottleneck } = data.chain;
-      const target = scope.kind === "factory" ? briefing.title : "the group";
-      return {
-        text:
-          `${b?.value ?? bottleneckDef.name} is the constraint for ${target}, running at ` +
-          `${b?.note ?? pct(bottleneck.utilisation)}. Everything downstream can only build what it delivers, ` +
-          `so an hour recovered there is an hour of extra vehicles — an hour recovered anywhere else is not.`,
-        rows: data.chain.chain
-          .map((c) => ({
-            label: PROCESS_BY_ID.get(c.processId)?.name ?? c.processId,
-            value: `${pct(c.utilisation)} of capacity`,
-          }))
-          .sort((a, b2) => parseFloat(b2.value) - parseFloat(a.value)),
-      };
-    }
-    const constraining = briefing.upstream.filter((u) => u.isConstraining);
-    // Each limiter is named with its distance, so "fix the thing next door" and
-    // "fix the thing three steps back" are not confused for each other. The
-    // per-process detail stays in the rows rather than glued onto this sentence.
-    const named = constraining
-      .map((u) => `${u.def.name} (${u.distance === 1 ? "direct" : `${u.distance} steps upstream`})`)
-      .join(" and ");
+    const { bottleneckDef, bottleneck } = data.chain;
+    const perFactory = data.factories.map((f) => ({
+      label: f.name,
+      value: `${f.bottleneckProcessName} at ${pct(f.bottleneckUtilisation)}`,
+    }));
+    const allSame = new Set(data.factories.map((f) => f.bottleneckProcessId)).size === 1;
 
     return {
       text:
-        constraining.length > 0
-          ? `${briefing.title} is limited by ${named}. Until that is released, capacity here ` +
-            `sits idle rather than building vehicles — so this is not the place to invest.`
-          : `${briefing.title} is not currently limited by anything upstream — it is keeping up ` +
-            `with what it is fed.`,
-      rows: briefing.upstream.map((u) => ({ label: u.def.name, value: u.note })),
+        `${bottleneckDef.name} is the group constraint at ${pct(bottleneck.utilisation)} of capacity. ` +
+        (allSame
+          ? "It is the constraint at every factory, so this is structural rather than a local problem — " +
+            "the whole group is press-limited and fixing it anywhere adds vehicles there."
+          : "It differs by site, so the fix is local rather than group-wide.") +
+        " Everything downstream can only build what it delivers, so an hour recovered there is an hour of " +
+        "extra vehicles; an hour recovered anywhere else is not.",
+      rows: perFactory,
     };
   }
 
@@ -330,18 +350,32 @@ export function answerQuestion(
 
   // --- influence -----------------------------------------------------------
   if (has("affect", "influence", "upstream", "downstream", "depend", "feed", "knock-on", "impact")) {
-    if (briefing.upstream.length === 0 && briefing.downstream.length === 0) {
-      return { text: briefing.influenceNote };
+    const focus = briefing.focus;
+    if (!focus || (focus.upstream.length === 0 && focus.downstream.length === 0)) {
+      return {
+        text:
+          "Every process in the chain is in scope here. Ranked by how close each is to its own ceiling — " +
+          "the one at the top is what limits all the others.",
+        rows: briefing.processes.map((p) => ({ label: p.name, value: p.detail })),
+      };
     }
-    const direct = briefing.upstream.filter((u) => u.distance === 1);
-    const indirect = briefing.upstream.filter((u) => u.distance > 1);
+
+    const direct = focus.upstream.filter((u) => u.distance === 1);
+    const indirect = focus.upstream.filter((u) => u.distance > 1);
+    const name = focus.label.replace(/^In context · /, "").replace(/ \(.*\)$/, "");
+
     return {
       text:
-        `${briefing.title} is fed directly by ${direct.map((u) => u.def.name).join(" and ") || "nothing inside the plant"}` +
+        `${name} is fed directly by ${direct.map((u) => u.def.name).join(" and ") || "nothing inside the plant"}` +
         (indirect.length > 0
-          ? `, and indirectly by ${indirect.map((u) => u.def.name).join(", ")}` : "") +
-        `. ${briefing.downstream.length > 0 ? `It feeds ${briefing.downstream.filter((d) => d.distance === 1).map((d) => d.def.name).join(" and ")}, and everything after them.` : "Nothing depends on it — it is the end of the line."}`,
-      rows: [...briefing.upstream, ...briefing.downstream].map((i) => ({
+          ? `, and indirectly by ${indirect.map((u) => `${u.def.name} (${u.distance} steps)`).join(", ")}`
+          : "") +
+        `. ${
+          focus.downstream.length > 0
+            ? `It feeds ${focus.downstream.filter((d) => d.distance === 1).map((d) => d.def.name).join(" and ")}, and everything after them.`
+            : "Nothing depends on it — it is the end of the line."
+        }`,
+      rows: [...focus.upstream, ...focus.downstream].map((i) => ({
         label: `${i.def.name} (${i.direction})`,
         value: i.note,
       })),
@@ -427,7 +461,7 @@ export function answerQuestion(
   // --- honest fallback -----------------------------------------------------
   return {
     text:
-      "I can only answer from the production model behind this page, and that question is outside it. " +
+      "I can only answer from the production model behind the portal, and that question is outside it. " +
       "I have no cost, headcount, supplier or maintenance-schedule data. Try one of these:",
     rows: SUGGESTED_QUESTIONS.map((s) => ({ label: s, value: "" })),
     unanswered: true,

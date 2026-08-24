@@ -111,7 +111,7 @@ export function FactoryView({ factoryId }: { factoryId: string }) {
       search={search}
       showFactoryFilter={false}
       insightScope={{ kind: "factory", factoryId, skuId: activeSkuId }}
-      insightData={data}
+      insightFilters={filters}
     >
       {!data || !factory ? (
         <PageSkeleton />

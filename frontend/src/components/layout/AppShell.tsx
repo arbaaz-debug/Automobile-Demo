@@ -22,7 +22,7 @@ import { routes, type Crumb } from "@/lib/routes";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { InsightPanel } from "@/components/insight/InsightPanel";
 import type { InsightScope } from "@/domain/manufacturing/assistant";
-import type { OverviewData } from "@/services/data/overview";
+import type { OverviewFilters } from "@/services/data/overview";
 
 export interface WindowControls {
   dateIso: string;
@@ -46,9 +46,13 @@ export function AppShell({
   search,
   /** Hidden on pages scoped to one factory, where the picker would contradict the page. */
   showFactoryFilter = true,
-  /** What "Get insight" should read — the page identifies itself. */
+  /**
+   * What "Get insight" should read. The scope says which page you are on; the
+   * filters say which window. The panel always rolls up **every** factory —
+   * the page's own scope narrows what it highlights, never what it can see.
+   */
   insightScope,
-  insightData,
+  insightFilters,
 }: {
   children: ReactNode;
   controls: WindowControls;
@@ -60,7 +64,7 @@ export function AppShell({
   search?: string | null;
   showFactoryFilter?: boolean;
   insightScope: InsightScope;
-  insightData: OverviewData | null;
+  insightFilters: OverviewFilters;
 }) {
   // Held here rather than in the bar so the drawer survives the bar re-rendering
   // on every filter change, and so it can cover the whole shell.
@@ -88,7 +92,7 @@ export function AppShell({
         open={insightOpen}
         onClose={() => setInsightOpen(false)}
         scope={insightScope}
-        data={insightData}
+        filters={insightFilters}
       />
     </div>
   );

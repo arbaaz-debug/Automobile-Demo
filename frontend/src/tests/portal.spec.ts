@@ -93,9 +93,8 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     // Data source is disclosed.
     await expect(page.getByText("Simulated data")).toBeVisible();
 
-    // Trends and the factory comparison are present.
-    await expect(page.getByText("Vehicles produced").first()).toBeVisible();
-    await expect(page.getByText("Rejections", { exact: true }).first()).toBeVisible();
+    // The split chart for the selected metric, and the sections below it.
+    await expect(page.getByText("Vehicles produced by factory")).toBeVisible();
     await expect(
       page.getByText("Where output is being lost — and what to do about it"),
     ).toBeVisible();
@@ -244,16 +243,16 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     await openOverview(page);
 
     const dayTotal = await readTileValue(page, "Vehicles produced");
-    await expect(page.getByText(/1 production day/)).toBeVisible();
+    await expect(page.getByText(/previous 1-day window/)).toBeVisible();
 
     await page.getByRole("button", { name: "30D", exact: true }).click();
-    await expect(page.getByText(/30 production days/)).toBeVisible();
+    await expect(page.getByText(/previous 30-day window/)).toBeVisible();
 
     const monthTotal = await readTileValue(page, "Vehicles produced");
     expect(monthTotal).toBeGreaterThan(dayTotal);
 
     // Trend switches to daily buckets.
-    await expect(page.getByText(/Per day, by factory/).first()).toBeVisible();
+    await expect(page.getByText(/change against the previous 30-day window/)).toBeVisible();
 
     expect(page.url()).toContain("range=30d");
 
@@ -268,7 +267,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     const dayTotal = await readTileValue(page, "Vehicles produced");
 
     await page.getByRole("button", { name: "A", exact: true }).click();
-    await expect(page.getByText(/shift A/)).toBeVisible();
+    await expect(page.getByText(/shift A/).first()).toBeVisible();
 
     const shiftTotal = await readTileValue(page, "Vehicles produced");
     expect(shiftTotal).toBeLessThan(dayTotal);
@@ -335,7 +334,26 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     // Give the scene a moment to render a frame before capturing.
     await page.waitForTimeout(2500);
     await page.screenshot({ path: `${SHOTS}/04-plant-nashik.png`, fullPage: true });
-    await canvas.screenshot({ path: `${SHOTS}/05-press-line-3d.png` });
+    // Clipped page screenshot rather than locator.screenshot: the WebGL canvas
+    // renders continuously, so waiting for the element to be "stable" never
+    // settles and the capture times out.
+    await canvas.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(500);
+    const view = page.viewportSize();
+    const shot = await canvas.boundingBox();
+    if (shot && view) {
+      // Clamp into the viewport: an unclamped clip that runs past the bottom is
+      // rejected as "outside the resulting image".
+      await page.screenshot({
+        path: `${SHOTS}/05-press-line-3d.png`,
+        clip: {
+          x: Math.max(0, shot.x),
+          y: Math.max(0, shot.y),
+          width: Math.min(shot.width, view.width - Math.max(0, shot.x)),
+          height: Math.min(shot.height, view.height - Math.max(0, shot.y)),
+        },
+      });
+    }
 
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
@@ -362,12 +380,21 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
 
-  test("charts expose an equivalent table view", async ({ page }) => {
+  test("every chart has an equivalent table", async ({ page }) => {
     const errors = watchConsole(page);
-    await openOverview(page);
+    await openOverview(page, "?range=7d");
 
+    // The line forms carry a table toggle.
+    await page.getByRole("button", { name: /^Total rejections/ }).first().click();
     await page.getByRole("button", { name: "Show data table view" }).first().click();
-    await expect(page.getByRole("columnheader", { name: "Hour" }).first()).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Day" }).first()).toBeVisible();
+
+    // The bar form's equivalent is its summary table, which carries the same
+    // per-factory figures plus the benchmark comparison.
+    await page.getByRole("button", { name: /^Vehicles produced/ }).first().click();
+    await page.getByRole("button", { name: /Show summary/ }).click();
+    await expect(page.getByRole("columnheader", { name: "vs benchmark" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "vs previous" })).toBeVisible();
 
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
@@ -396,28 +423,81 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
 
-  test("metric tiles open into their per-factory split", async ({ page }) => {
-    await openOverview(page);
+  test("production split is a bar per factory, with benchmark and change", async ({
+    page,
+  }) => {
+    await openOverview(page, "?range=7d");
 
-    const tile = page
-      .locator("div", { hasText: /^Vehicles produced$/ })
-      .locator("xpath=ancestor::div[contains(@class,'rounded-lg')][1]")
-      .first();
+    // Production opens by default and is the bar form.
+    await expect(page.getByText("Vehicles produced by factory")).toBeVisible();
 
-    await tile.getByRole("button", { name: /Split across 5 factories/ }).click();
+    const bars = page.locator("svg .recharts-bar-rectangle");
+    expect(await bars.count()).toBeGreaterThanOrEqual(5);
 
-    // Every factory is listed, and each row links into that factory.
-    const links = tile.locator("a[href*='/factory/']");
-    await expect(links).toHaveCount(5);
-    await links.first().click();
-    await page.waitForURL("**/factory/**");
-    await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toBeVisible();
+    // A dashed benchmark rule per factory, readable on hover.
+    const benchmarks = (await page.locator("svg title").allTextContents()).filter((t) =>
+      t.startsWith("Benchmark"),
+    );
+    expect(benchmarks).toHaveLength(5);
+    expect(benchmarks[0]).toMatch(/Benchmark [\d,]+ vehicles/);
+
+    // Each factory name carries its change against the previous window.
+    const axis = await page.evaluate(() => {
+      const svg = document.querySelector("svg.recharts-surface");
+      return svg ? [...svg.querySelectorAll("text")].map((t) => t.textContent ?? "") : [];
+    });
+    expect(axis).toContain("Nashik");
+    expect(axis.filter((t) => /[\u25B2\u25BC]\s*\d/.test(t))).toHaveLength(5);
+  });
+
+  test("metric tiles select which split is shown", async ({ page }) => {
+    await openOverview(page, "?range=7d");
+
+    const production = page.getByRole("button", { name: /^Vehicles produced/ }).first();
+    const oee = page.getByRole("button", { name: /^Group OEE/ }).first();
+
+    await expect(production).toHaveAttribute("aria-pressed", "true");
+
+    await oee.click();
+    await expect(oee).toHaveAttribute("aria-pressed", "true");
+    await expect(production).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByText("Group OEE by factory")).toBeVisible();
+
+    // Pressing the open one again closes the split.
+    await oee.click();
+    await expect(oee).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByText(/Select a metric above/)).toBeVisible();
+  });
+
+  test("x-axis frequency follows the selected range", async ({ page }) => {
+    const axisLabels = () =>
+      page.evaluate(() => {
+        const svg = document.querySelector("svg.recharts-surface");
+        return svg ? [...svg.querySelectorAll("text")].map((t) => t.textContent ?? "") : [];
+      });
+
+    // 7 days reads day by day, a month week by week, a quarter month by month.
+    for (const [range, pattern] of [
+      ["7d", /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$/],
+      ["30d", /^w\/c /],
+      ["90d", /^[A-Z][a-z]{2} \d{2}$/],
+    ] as const) {
+      await page.goto(`/?range=${range}`);
+      await page.waitForTimeout(1500);
+      await page.getByRole("button", { name: /^Avg production \/ day/ }).first().click();
+      await page.waitForTimeout(1200);
+      const labels = await axisLabels();
+      expect(labels.some((l) => pattern.test(l)), `${range} axis: ${labels.join(",")}`).toBe(
+        true,
+      );
+    }
   });
 
   test("chart legends toggle a factory in and out of the series", async ({ page }) => {
     await openOverview(page);
 
-    const chart = page.locator("section", { hasText: "Per hour, by factory" }).first();
+    await page.getByRole("button", { name: /^Total rejections/ }).first().click();
+    const chart = page.locator("section", { hasText: "Vehicles rejected at any process" }).first();
 
     // Everything is on by default, including the pan-India aggregate.
     const all = chart.getByRole("button", { name: "All factories" });
@@ -499,32 +579,58 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     }
   });
 
-  test("insight reads the page it was opened from", async ({ page }) => {
+  test("insight covers every factory and process, from any page", async ({ page }) => {
     const errors = watchConsole(page);
 
-    // The panel names the page, not a generic title.
-    await page.goto("/factory/nashik/xuv700/paint-shop/");
+    // Opened from the deepest page in the portal — one process, one model, one
+    // factory — the assistant must still see the whole group.
+    await page.goto("/factory/zaheerabad/scorpio-n/paint-shop/");
     await page.waitForTimeout(2500);
     await page.getByRole("button", { name: "Get insight" }).click();
 
     const panel = page.getByRole("dialog", { name: "Insight" });
-    await expect(panel.getByRole("heading", { name: "Paint shop" })).toBeVisible();
-    // .first(): the scope line and the recommendation rows both name the factory.
-    await expect(panel.getByText(/Nashik/).first()).toBeVisible();
-    // By role: "What affects this" also matches the suggested-question chip.
-    await expect(panel.getByRole("heading", { name: "What this page says" })).toBeVisible();
-    await expect(panel.getByRole("heading", { name: "What affects this" })).toBeVisible();
+    await expect(panel.getByRole("heading", { name: "Mahindra · all factories" })).toBeVisible();
 
-    // Indirect influence is named as such: the press shop reaches paint only
+    // Every factory and every process, not just the page's own.
+    await expect(panel.getByRole("heading", { name: "All 5 factories" })).toBeVisible();
+    await expect(panel.getByRole("heading", { name: "All 8 processes" })).toBeVisible();
+    await expect(panel.locator("a[href*='/factory/']")).toHaveCount(5);
+
+    // Factories other than the one the page is scoped to are present.
+    for (const other of ["Nashik", "Chakan", "Kandivali", "Haridwar"]) {
+      await expect(panel.getByText(other, { exact: true }).first()).toBeVisible();
+    }
+
+    // The page is still identified, as context rather than as a limit.
+    await expect(panel.getByRole("heading", { name: /In context · Paint shop/ })).toBeVisible();
+
+    // Indirect influence is named as such: press shop reaches paint only
     // through the body shop, so it must show as more than one step away.
-    await expect(panel.getByText("Press shop").first()).toBeVisible();
     await expect(panel.getByText(/steps/).first()).toBeVisible();
 
-    // Escape closes it.
     await page.keyboard.press("Escape");
     await expect(panel).toHaveCount(0);
 
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
+  });
+
+  test("insight can name a different factory as worst than the one you are on", async ({
+    page,
+  }) => {
+    // The regression this guards: when the panel inherited the page's roll-up,
+    // asking this from inside Nashik could only ever answer "Nashik".
+    await page.goto("/factory/nashik/");
+    await page.waitForTimeout(2500);
+    await page.getByRole("button", { name: "Get insight" }).click();
+    const panel = page.getByRole("dialog", { name: "Insight" });
+
+    await panel.getByRole("button", { name: "Which factory is worst?" }).click();
+    const answer = panel.getByText(/is weakest at/).first();
+    await expect(answer).toBeVisible();
+    await expect(answer).not.toContainText("Nashik is weakest");
+
+    // And the answer ranks all five, not one.
+    await expect(panel.getByText(/Zaheerabad/).first()).toBeVisible();
   });
 
   test("insight chat answers from the model and refuses what it cannot know", async ({
@@ -537,7 +643,8 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
 
     // A suggested question answers with the constraint.
     await panel.getByRole("button", { name: "What is holding back output?" }).click();
-    await expect(panel.getByText(/is the constraint for the group/)).toBeVisible();
+    // .last(): the group summary above uses the same phrase; the answer is appended below it.
+    await expect(panel.getByText(/is the group constraint at/).last()).toBeVisible();
 
     // A free-text question it can answer.
     await panel.getByRole("textbox").fill("which factory is worst");
@@ -567,14 +674,15 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
 });
 
 async function readTileValue(page: Page, label: string): Promise<number> {
-  const tile = page.locator("div", { hasText: new RegExp(`^${label}$`) }).first();
-  const value = await tile
-    .locator("xpath=ancestor::div[contains(@class,'rounded-lg')][1]")
-    .locator("span")
-    .filter({ hasText: /^[\d,]+$/ })
+  // The headline tiles are buttons (they select their split chart), and the
+  // value sits immediately before the change arrow.
+  const text = await page
+    .locator("button[aria-pressed]")
+    .filter({ hasText: label })
     .first()
     .innerText();
-  return parseIndianInt(value);
+  const match = text.match(/([\d,]+(?:\.\d+)?%?)\s*[\u25B2\u25BC]/);
+  return parseIndianInt(match?.[1] ?? "0");
 }
 
 function parseIndianInt(text: string): number {
