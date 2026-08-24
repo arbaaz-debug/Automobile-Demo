@@ -119,6 +119,8 @@ export function FactoryProcessView({
       crumbs={factoryProcessCrumbs(factoryId, skuId, processId, search)}
       search={search}
       showFactoryFilter={false}
+      insightScope={{ kind: "factory-process", factoryId, skuId, processId }}
+      insightData={data}
     >
       {!data || !factory || !metrics || !processSeries ? (
         <PageSkeleton />

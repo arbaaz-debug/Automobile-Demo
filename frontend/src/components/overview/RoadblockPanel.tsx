@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, ArrowRight } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import type { FactoryRow } from "@/services/data/overview";
 import { bandForOee } from "@/domain/stamping/oee";
 import { fmtInt, fmtPct } from "@/lib/format";
@@ -20,6 +20,11 @@ import { routes } from "@/lib/routes";
  *
  * Sorted worst-first by effectiveness, so the plant needing attention is at the
  * top rather than in alphabetical order.
+ *
+ * Deliberately compact. This sits beside the recommendations panel at half
+ * width, so the factory name carries the link rather than a separate button
+ * column, and severity rides on a glyph and a figure rather than on a wide
+ * meter — colour alone never carries it either way.
  */
 export function RoadblockPanel({
   factories,
@@ -32,25 +37,24 @@ export function RoadblockPanel({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[780px] text-[12px]">
+      <table className="w-full min-w-[440px] text-[12px]">
         <caption className="sr-only">
           Constraint and weakest process at each factory for the selected window
         </caption>
         <thead>
           <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-[0.1em] text-[var(--text-muted)]">
-            <th scope="col" className="py-2 pl-4 pr-3 text-left font-medium">
+            <th scope="col" className="py-2 pl-4 pr-2 text-left font-medium">
               Factory
             </th>
-            <th scope="col" className="px-3 py-2 text-left font-medium">
-              Constraint — capping output
+            <th scope="col" className="px-2 py-2 text-left font-medium">
+              Constraint
             </th>
-            <th scope="col" className="px-3 py-2 text-left font-medium">
-              Weakest process — losing output
+            <th scope="col" className="px-2 py-2 text-left font-medium">
+              Weakest process
             </th>
-            <th scope="col" className="px-3 py-2 text-right font-medium">
-              Vehicles / day
+            <th scope="col" className="py-2 pl-2 pr-4 text-right font-medium">
+              Veh / day
             </th>
-            <th scope="col" className="py-2 pl-3 pr-4" />
           </tr>
         </thead>
         <tbody>
@@ -63,83 +67,78 @@ export function RoadblockPanel({
                 key={f.plantId}
                 className="border-b border-[var(--border)]/60 transition last:border-0 hover:bg-[var(--surface-3)]/40"
               >
-                <th scope="row" className="py-3 pl-4 pr-3 text-left font-normal">
-                  <span className="flex items-center gap-2">
+                <th scope="row" className="py-2.5 pl-4 pr-2 text-left font-normal">
+                  <Link
+                    href={routes.plant(f.plantId, search)}
+                    className="flex items-center gap-1.5 underline-offset-2 hover:underline"
+                  >
                     <span
                       aria-hidden
                       className="size-2 shrink-0 rounded-[2px]"
                       style={{ backgroundColor: f.color }}
                     />
                     <span className="font-medium text-[var(--text-primary)]">{f.name}</span>
-                  </span>
+                  </Link>
                 </th>
 
-                <td className="px-3 py-3">
-                  <Link
-                    href={routes.process(f.bottleneckProcessId, search)}
-                    className="group block"
-                  >
-                    <span className="flex items-center gap-1.5">
+                <td className="px-2 py-2.5 align-top">
+                  <Link href={routes.process(f.bottleneckProcessId, search)} className="group block">
+                    <span className="flex items-baseline gap-1">
                       <AlertTriangle
-                        size={12}
+                        size={11}
                         aria-hidden
+                        className="shrink-0 translate-y-0.5"
                         style={{ color: STATUS.warning }}
                       />
-                      <span className="font-medium text-[var(--text-primary)] underline-offset-2 group-hover:underline">
+                      <span className="truncate text-[11px] font-medium text-[var(--text-primary)] group-hover:underline">
                         {f.bottleneckProcessName}
                       </span>
+                      <span
+                        className="tabular shrink-0 text-[11px] font-semibold"
+                        style={{ color: STATUS_TEXT.warning }}
+                      >
+                        {fmtPct(f.bottleneckUtilisation, 0)}
+                      </span>
                     </span>
-                    <span className="mt-1 flex items-center gap-2">
+                    <span className="mt-1 block max-w-[120px]">
                       <Meter
                         value={Math.min(1, f.bottleneckUtilisation)}
                         color={STATUS.warning}
                         label={`${f.name} constraint utilisation`}
+                        height={4}
                       />
-                      <span className="tabular w-11 shrink-0 text-right text-[10px] text-[var(--text-muted)]">
-                        {fmtPct(f.bottleneckUtilisation, 0)}
-                      </span>
                     </span>
                   </Link>
                 </td>
 
-                <td className="px-3 py-3">
+                <td className="px-2 py-2.5 align-top">
                   <Link href={routes.process(f.worstProcessId, search)} className="group block">
-                    <span className="flex items-center gap-1.5">
+                    <span className="flex items-baseline gap-1">
                       <span
                         aria-hidden
-                        className="text-[11px]"
+                        className="shrink-0 text-[10px]"
                         style={{ color: severe ? STATUS_TEXT.critical : STATUS_TEXT.warning }}
                       >
                         {severe ? "▲" : "◐"}
                       </span>
-                      <span className="font-medium text-[var(--text-primary)] underline-offset-2 group-hover:underline">
+                      <span className="truncate text-[11px] font-medium text-[var(--text-primary)] group-hover:underline">
                         {f.worstProcessName}
                       </span>
                       <span
-                        className="tabular text-[11px] font-semibold"
+                        className="tabular shrink-0 text-[11px] font-semibold"
                         style={{ color: BAND_COLOR[band] }}
                       >
-                        {fmtPct(f.worstOee, 1)} OEE
+                        {fmtPct(f.worstOee, 0)}
                       </span>
                     </span>
-                    <span className="mt-1 block text-[10px] text-[var(--text-muted)]">
-                      {severe ? "Critical — losing real output" : "Below target"}
+                    <span className="mt-0.5 block text-[9px] text-[var(--text-muted)]">
+                      {severe ? "Critical — losing real output" : "OEE below target"}
                     </span>
                   </Link>
                 </td>
 
-                <td className="tabular px-3 py-3 text-right font-semibold text-[var(--text-primary)]">
+                <td className="tabular py-2.5 pl-2 pr-4 text-right align-top font-semibold text-[var(--text-primary)]">
                   {fmtInt(f.avgPerDay)}
-                </td>
-
-                <td className="py-3 pl-3 pr-4 text-right">
-                  <Link
-                    href={routes.plant(f.plantId, search)}
-                    className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 text-[10px] font-medium text-[var(--text-secondary)] transition hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]"
-                  >
-                    Open factory
-                    <ArrowRight size={11} aria-hidden />
-                  </Link>
                 </td>
               </tr>
             );

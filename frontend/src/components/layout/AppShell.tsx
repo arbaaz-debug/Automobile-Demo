@@ -1,8 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
-import { Activity, Factory, RefreshCw, Radio, Database, ChevronDown } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import {
+  Activity,
+  Factory,
+  RefreshCw,
+  Radio,
+  Database,
+  ChevronDown,
+  Sparkles,
+} from "lucide-react";
 import { PLANTS, SHIFTS } from "@/domain/stamping/catalog";
 import type { ShiftId } from "@/domain/stamping/types";
 import type { SourceDetail } from "@/services/data/provider";
@@ -12,6 +20,9 @@ import { cn, fmtTime } from "@/lib/format";
 import { STATUS } from "@/lib/theme";
 import { routes, type Crumb } from "@/lib/routes";
 import { Breadcrumbs } from "./Breadcrumbs";
+import { InsightPanel } from "@/components/insight/InsightPanel";
+import type { InsightScope } from "@/domain/manufacturing/assistant";
+import type { OverviewData } from "@/services/data/overview";
 
 export interface WindowControls {
   dateIso: string;
@@ -35,6 +46,9 @@ export function AppShell({
   search,
   /** Hidden on pages scoped to one factory, where the picker would contradict the page. */
   showFactoryFilter = true,
+  /** What "Get insight" should read — the page identifies itself. */
+  insightScope,
+  insightData,
 }: {
   children: ReactNode;
   controls: WindowControls;
@@ -45,7 +59,13 @@ export function AppShell({
   crumbs: Crumb[];
   search?: string | null;
   showFactoryFilter?: boolean;
+  insightScope: InsightScope;
+  insightData: OverviewData | null;
 }) {
+  // Held here rather than in the bar so the drawer survives the bar re-rendering
+  // on every filter change, and so it can cover the whole shell.
+  const [insightOpen, setInsightOpen] = useState(false);
+
   return (
     <div className="flex min-h-screen flex-col bg-[var(--page)]">
       <TopBar
@@ -56,12 +76,20 @@ export function AppShell({
         loading={loading}
         search={search}
         showFactoryFilter={showFactoryFilter}
+        onGetInsight={() => setInsightOpen(true)}
       />
       <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5 lg:px-6">
         <Breadcrumbs crumbs={crumbs} />
         {children}
       </main>
       <Footer />
+
+      <InsightPanel
+        open={insightOpen}
+        onClose={() => setInsightOpen(false)}
+        scope={insightScope}
+        data={insightData}
+      />
     </div>
   );
 }
@@ -74,6 +102,7 @@ function TopBar({
   loading,
   search,
   showFactoryFilter,
+  onGetInsight,
 }: {
   controls: WindowControls;
   source: SourceDetail | null;
@@ -82,6 +111,7 @@ function TopBar({
   loading: boolean;
   search?: string | null;
   showFactoryFilter: boolean;
+  onGetInsight: () => void;
 }) {
   const { session } = useAuth();
 
@@ -120,6 +150,17 @@ function TopBar({
           </button>
 
           <UserChip name={session?.displayName ?? "Operator"} />
+
+          {/* Last in the row, so it is the top-right control on every page. The
+              header is sticky, so it stays reachable at any scroll position. */}
+          <button
+            type="button"
+            onClick={onGetInsight}
+            className="inline-flex items-center gap-1.5 rounded border border-[var(--series-1)] bg-[var(--series-1)] px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:brightness-110"
+          >
+            <Sparkles size={13} aria-hidden />
+            Get insight
+          </button>
         </div>
       </div>
     </header>

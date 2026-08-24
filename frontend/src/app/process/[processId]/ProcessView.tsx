@@ -111,6 +111,8 @@ export function ProcessView({ processId }: { processId: string }) {
       loading={loading}
       crumbs={processCrumbs(processId, search)}
       search={search}
+      insightScope={{ kind: "process", processId }}
+      insightData={data}
     >
       {!data || !metrics || !processSeries ? (
         <PageSkeleton />

@@ -85,6 +85,8 @@ export function OverviewView() {
       loading={loading}
       crumbs={overviewCrumbs()}
       search={search}
+      insightScope={{ kind: "overview" }}
+      insightData={data}
     >
       {!data ? (
         <PageSkeleton />
@@ -167,35 +169,40 @@ export function OverviewView() {
             />
           </div>
 
-          {/* --- roadblocks -------------------------------------------------- */}
+          {/* --- roadblocks + recommendations -------------------------------
+              Side by side: the left card says where output is being lost, the
+              right says what to do about it. They are read together, so they
+              sit together. Stacked below xl, where two half-width tables would
+              each need horizontal scrolling. */}
 
-          <SectionLabel>Roadblocks — where each factory is losing output</SectionLabel>
+          <SectionLabel>Where output is being lost — and what to do about it</SectionLabel>
 
-          <Card className="mb-6">
-            <CardHeader
-              title="Constraint and weakest process by factory"
-              subtitle="The constraint caps what a plant can build; the weakest process is where it is losing what it can"
-              icon={<SignpostBig size={14} />}
-            />
-            <RoadblockPanel factories={data.factories} search={search} />
-          </Card>
+          {/* Default `stretch` alignment, so the pair reads as one row rather
+              than two cards of unrelated heights. */}
+          <div className="mb-6 grid grid-cols-1 gap-3 xl:grid-cols-2">
+            <Card>
+              <CardHeader
+                title="Roadblocks by factory"
+                subtitle="The constraint caps what a plant can build; the weakest process is where it loses what it can"
+                icon={<SignpostBig size={14} />}
+              />
+              <RoadblockPanel factories={data.factories} search={search} />
+            </Card>
 
-          {/* --- insights ---------------------------------------------------- */}
-
-          <SectionLabel>Recommendations</SectionLabel>
-
-          <Card className="mb-6">
-            <CardHeader
-              title="Factory → process insights"
-              subtitle="Generated from threshold crossings in the same chain the page reports"
-              icon={<Lightbulb size={14} />}
-            />
-            <InsightsPanel
-              insights={data.insights}
-              factories={data.factories}
-              search={search}
-            />
-          </Card>
+            <Card>
+              <CardHeader
+                title="Factory → process insights"
+                subtitle="Generated from threshold crossings in the same chain the page reports"
+                icon={<Lightbulb size={14} />}
+              />
+              <InsightsPanel
+                insights={data.insights}
+                factories={data.factories}
+                search={search}
+                initialCount={6}
+              />
+            </Card>
+          </div>
 
           {/* --- trends ------------------------------------------------------ */}
 

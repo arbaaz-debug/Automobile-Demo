@@ -110,6 +110,8 @@ export function FactoryView({ factoryId }: { factoryId: string }) {
       crumbs={factoryCrumbs(factoryId, search)}
       search={search}
       showFactoryFilter={false}
+      insightScope={{ kind: "factory", factoryId, skuId: activeSkuId }}
+      insightData={data}
     >
       {!data || !factory ? (
         <PageSkeleton />

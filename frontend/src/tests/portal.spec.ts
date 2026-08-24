@@ -96,7 +96,9 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     // Trends and the factory comparison are present.
     await expect(page.getByText("Vehicles produced").first()).toBeVisible();
     await expect(page.getByText("Rejections", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("Roadblocks — where each factory is losing output")).toBeVisible();
+    await expect(
+      page.getByText("Where output is being lost — and what to do about it"),
+    ).toBeVisible();
     await expect(page.getByText("Factory → process insights")).toBeVisible();
 
     await page.screenshot({ path: `${SHOTS}/02-overview.png`, fullPage: true });
@@ -153,7 +155,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     await expect(map.getByText(/is the constraint/)).toBeVisible();
 
     // The roadblock table names the constraint per factory.
-    const roadblocks = page.locator("table", { hasText: "Constraint — capping output" }).first();
+    const roadblocks = page.locator("table", { hasText: "Weakest process" }).first();
     await expect(roadblocks.locator("tbody tr")).toHaveCount(5);
     await expect(roadblocks.getByText("Press shop").first()).toBeVisible();
 
@@ -474,6 +476,78 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     // the static host falls through to the app shell rather than a real page.
     await page.goto("/factory/nashik/bolero-neo/paint-shop/");
     await expect(page.getByRole("heading", { name: "Paint shop", level: 1 })).toHaveCount(0);
+  });
+
+  test("Get insight is on every page, top right", async ({ page }) => {
+    for (const path of [
+      "/",
+      "/factory/nashik/",
+      "/process/paint-shop/",
+      "/factory/nashik/xuv700/paint-shop/",
+    ]) {
+      await page.goto(path);
+      await page.waitForTimeout(1500);
+
+      const btn = page.getByRole("banner").getByRole("button", { name: "Get insight" });
+      await expect(btn, `missing on ${path}`).toBeVisible();
+
+      // Top right: in the header, and right of centre.
+      const box = await btn.boundingBox();
+      const width = page.viewportSize()!.width;
+      expect(box!.x, `not right-aligned on ${path}`).toBeGreaterThan(width / 2);
+      expect(box!.y, `not at the top on ${path}`).toBeLessThan(100);
+    }
+  });
+
+  test("insight reads the page it was opened from", async ({ page }) => {
+    const errors = watchConsole(page);
+
+    // The panel names the page, not a generic title.
+    await page.goto("/factory/nashik/xuv700/paint-shop/");
+    await page.waitForTimeout(2500);
+    await page.getByRole("button", { name: "Get insight" }).click();
+
+    const panel = page.getByRole("dialog", { name: "Insight" });
+    await expect(panel.getByRole("heading", { name: "Paint shop" })).toBeVisible();
+    // .first(): the scope line and the recommendation rows both name the factory.
+    await expect(panel.getByText(/Nashik/).first()).toBeVisible();
+    // By role: "What affects this" also matches the suggested-question chip.
+    await expect(panel.getByRole("heading", { name: "What this page says" })).toBeVisible();
+    await expect(panel.getByRole("heading", { name: "What affects this" })).toBeVisible();
+
+    // Indirect influence is named as such: the press shop reaches paint only
+    // through the body shop, so it must show as more than one step away.
+    await expect(panel.getByText("Press shop").first()).toBeVisible();
+    await expect(panel.getByText(/steps/).first()).toBeVisible();
+
+    // Escape closes it.
+    await page.keyboard.press("Escape");
+    await expect(panel).toHaveCount(0);
+
+    expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
+  });
+
+  test("insight chat answers from the model and refuses what it cannot know", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.waitForTimeout(2500);
+    await page.getByRole("button", { name: "Get insight" }).click();
+    const panel = page.getByRole("dialog", { name: "Insight" });
+
+    // A suggested question answers with the constraint.
+    await panel.getByRole("button", { name: "What is holding back output?" }).click();
+    await expect(panel.getByText(/is the constraint for the group/)).toBeVisible();
+
+    // A free-text question it can answer.
+    await panel.getByRole("textbox").fill("which factory is worst");
+    await panel.getByRole("button", { name: "Ask" }).click();
+    await expect(panel.getByText(/is weakest at/)).toBeVisible();
+
+    // A question outside the model is refused rather than guessed at.
+    await panel.getByRole("textbox").fill("what is the price of steel");
+    await panel.getByRole("button", { name: "Ask" }).click();
+    await expect(panel.getByText(/that question is outside it/)).toBeVisible();
   });
 
   test("portal is responsive at tablet width", async ({ page }) => {
