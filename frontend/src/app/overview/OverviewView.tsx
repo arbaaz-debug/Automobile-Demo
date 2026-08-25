@@ -143,7 +143,7 @@ export function OverviewView() {
       updatedAt={updatedAt}
       onRefresh={refresh}
       loading={loading}
-      crumbs={overviewCrumbs()}
+      crumbs={overviewCrumbs(search)}
       search={search}
       insightScope={{ kind: "overview" }}
       insightFilters={filters}

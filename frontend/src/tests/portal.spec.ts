@@ -28,7 +28,7 @@ function watchConsole(page: Page): string[] {
 
 /** Opens the pan-India overview and waits for the first roll-up to land. */
 async function openOverview(page: Page, query = "") {
-  await page.goto(`/${query}`);
+  await page.goto(`/overview/${query}`);
   await expect(
     page.getByRole("heading", { name: /Pan-India manufacturing overview/i }),
   ).toBeVisible();
@@ -51,6 +51,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
 
     await page.goto("/");
     await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByRole("heading", { name: /Mahindra manufacturing · India/ })).toBeVisible();
     await openOverview(page);
 
     // No sign-in surface survives anywhere in the shell.
@@ -519,7 +520,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
       ["30d", /^w\/c /],
       ["90d", /^[A-Z][a-z]{2} \d{2}$/],
     ] as const) {
-      await page.goto(`/?range=${range}`);
+      await page.goto(`/overview/?range=${range}`);
       await page.waitForTimeout(1500);
       await openMetric(page, "Avg production / day");
       const labels = await axisLabels();
@@ -612,6 +613,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
   test("Get insight is on every page, top right", async ({ page }) => {
     for (const path of [
       "/",
+      "/overview/",
       "/factory/nashik/",
       "/process/paint-shop/",
       "/factory/nashik/xuv700/paint-shop/",
@@ -687,7 +689,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
   test("insight chat answers from the model and refuses what it cannot know", async ({
     page,
   }) => {
-    await page.goto("/");
+    await page.goto("/overview/");
     await page.waitForTimeout(2500);
     await page.getByRole("button", { name: "Get insight" }).click();
     const panel = page.getByRole("dialog", { name: "Insight" });
@@ -749,7 +751,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     ).toBeVisible();
 
     // 4. The assistant tells the same story, with the same figure.
-    await page.goto("/?range=30d");
+    await page.goto("/overview/?range=30d");
     await page.waitForTimeout(3000);
     await page.getByRole("button", { name: "Get insight" }).click();
     const panel = page.getByRole("dialog", { name: "Insight" });
@@ -781,6 +783,70 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     // At least one factory has moved by more than a couple of points.
     const magnitudes = deltas.map((d) => parseFloat(d.replace(/[^\d.]/g, "")));
     expect(Math.max(...magnitudes)).toBeGreaterThan(3);
+  });
+
+  test("landing page maps every factory and hands off to the overview", async ({ page }) => {
+    const errors = watchConsole(page);
+    await page.goto("/?range=7d");
+    await expect(
+      page.getByRole("heading", { name: /Mahindra manufacturing · India/ }),
+    ).toBeVisible();
+    await page.waitForTimeout(3000);
+
+    // The map is inline SVG — no tile server — with a marker per factory.
+    const map = page.getByRole("img", { name: /Map of India/ });
+    await expect(map).toBeVisible();
+    await expect(page.locator("a[href*='/factory/']")).toHaveCount(5);
+    for (const name of ["Nashik", "Chakan", "Kandivali", "Haridwar", "Zaheerabad"]) {
+      await expect(
+        page.locator("a[href*='/factory/'] span").filter({ hasText: new RegExp(`^${name}$`) }),
+      ).toBeVisible();
+    }
+
+    // The headline metric, and the four supporting ones, each with a change.
+    await expect(page.getByText("Total vehicles produced")).toBeVisible();
+    for (const label of [
+      "Avg production / day",
+      "Total rejections",
+      "First time through",
+      "Group OEE",
+    ]) {
+      await expect(page.getByText(label, { exact: true })).toBeVisible();
+    }
+    const arrows = await page.evaluate(
+      () => (document.body.innerText.match(/[\u25B2\u25BC]\s*\d/g) ?? []).length,
+    );
+    expect(arrows, "each metric shows a change arrow").toBeGreaterThanOrEqual(5);
+
+    // Labels must not collide — three of these plants are within 150 km.
+    const boxes = await Promise.all(
+      ["Nashik", "Chakan", "Kandivali", "Haridwar", "Zaheerabad"].map((n) =>
+        page
+          .locator("a[href*='/factory/'] span")
+          .filter({ hasText: new RegExp(`^${n}$`) })
+          .first()
+          .boundingBox(),
+      ),
+    );
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i]!;
+        const c = boxes[j]!;
+        const overlap =
+          a.x < c.x + c.width && a.x + a.width > c.x && a.y < c.y + c.height && a.y + a.height > c.y;
+        expect(overlap, `labels ${i} and ${j} overlap`).toBe(false);
+      }
+    }
+
+    // View details carries the window through to the overview.
+    await page.getByRole("link", { name: /View details/ }).click();
+    await page.waitForURL("**/overview/**");
+    expect(page.url()).toContain("range=7d");
+    await expect(
+      page.getByRole("heading", { name: /Pan-India manufacturing overview/ }),
+    ).toBeVisible();
+
+    expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
 
   test("portal is responsive at tablet width", async ({ page }) => {

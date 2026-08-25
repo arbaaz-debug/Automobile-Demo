@@ -122,7 +122,7 @@ function TopBar({
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--surface-1)]/95 backdrop-blur">
       <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 lg:px-6">
-        <Link href={routes.overview(search)} className="flex shrink-0 items-center gap-2.5">
+        <Link href={routes.home(search)} className="flex shrink-0 items-center gap-2.5">
           <span className="grid size-8 place-items-center rounded bg-[var(--series-1)]/20 text-[var(--series-1)]">
             <Factory size={17} />
           </span>

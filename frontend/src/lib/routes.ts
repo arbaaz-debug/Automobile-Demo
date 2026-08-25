@@ -9,10 +9,11 @@
  *
  * The hierarchy is the platform's flow, and it is three levels deep:
  *
- *   Overview (pan-India)                          /
- *   ├── Factory  <location>                       /factory/<factoryId>/
- *   │   └── <Model> · <Process>                   /factory/<factoryId>/<skuId>/<processId>/
- *   └── Process  <name>  (pan-India view)         /process/<processId>/
+ *   Home — the factory map                        /
+ *   └── Pan-India overview                        /overview/
+ *       ├── Factory  <location>                   /factory/<factoryId>/
+ *       │   └── <Model> · <Process>               /factory/<factoryId>/<skuId>/<processId>/
+ *       └── Process  <name>  (pan-India view)     /process/<processId>/
  *
  * The pan-India process view is a sibling of the factory branch, not a parent
  * of it: it answers "how is paint doing across India", which is a different
@@ -40,7 +41,8 @@ export function factoryName(factoryId: string): string {
 }
 
 export const routes = {
-  overview: (search?: string | null) => withFilters("/", search),
+  home: (search?: string | null) => withFilters("/", search),
+  overview: (search?: string | null) => withFilters("/overview/", search),
   factory: (factoryId: string, search?: string | null) =>
     withFilters(`/factory/${factoryId}/`, search),
   /** A factory page focused on one model. */
@@ -62,12 +64,17 @@ export const routes = {
     withFilters(`/factory/${factoryId}/`, search),
 };
 
-export function overviewCrumbs(): Crumb[] {
-  return [{ label: "Pan-India overview" }];
+export function homeCrumbs(): Crumb[] {
+  return [{ label: "Home" }];
+}
+
+export function overviewCrumbs(search?: string | null): Crumb[] {
+  return [{ label: "Home", href: routes.home(search) }, { label: "Pan-India overview" }];
 }
 
 export function processCrumbs(processId: string, search?: string | null): Crumb[] {
   return [
+    { label: "Home", href: routes.home(search) },
     { label: "Pan-India overview", href: routes.overview(search) },
     { label: PROCESS_BY_ID.get(processId)?.name ?? processId },
   ];
@@ -75,6 +82,7 @@ export function processCrumbs(processId: string, search?: string | null): Crumb[
 
 export function factoryCrumbs(factoryId: string, search?: string | null): Crumb[] {
   return [
+    { label: "Home", href: routes.home(search) },
     { label: "Pan-India overview", href: routes.overview(search) },
     { label: factoryName(factoryId) },
   ];
@@ -87,6 +95,7 @@ export function factoryProcessCrumbs(
   search?: string | null,
 ): Crumb[] {
   return [
+    { label: "Home", href: routes.home(search) },
     { label: "Pan-India overview", href: routes.overview(search) },
     { label: factoryName(factoryId), href: routes.factory(factoryId, search) },
     {
