@@ -63,6 +63,15 @@ export function FactorySeriesChart({
   className,
   /** Rendered inside a metric card, at roughly a fifth of the row. */
   compact = false,
+  /**
+   * Draw the pan-India roll-up alongside the factories.
+   *
+   * Off where the group figure is already stated above the chart. For a count
+   * metric the aggregate is the *sum* of the series beneath it, so plotting
+   * both on one axis pins the scale to the total and compresses every factory
+   * into the bottom of the plot — the comparison the chart exists to make.
+   */
+  showAggregate = true,
 }: {
   title: string;
   subtitle?: string;
@@ -74,6 +83,7 @@ export function FactorySeriesChart({
   height?: number;
   className?: string;
   compact?: boolean;
+  showAggregate?: boolean;
 }) {
   const id = useId();
   const [asTable, setAsTable] = useState(false);
@@ -83,14 +93,14 @@ export function FactorySeriesChart({
   // available series underneath us.
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
 
-  const multi = seriesByFactory.length > 1;
+  const withAggregate = showAggregate && seriesByFactory.length > 1;
 
   const legend = useMemo(
     () => [
-      ...(multi ? [{ key: ALL_KEY, name: "All factories", color: ALL_COLOR }] : []),
+      ...(withAggregate ? [{ key: ALL_KEY, name: "All factories", color: ALL_COLOR }] : []),
       ...seriesByFactory.map((s) => ({ key: s.plantId, name: s.name, color: s.color })),
     ],
-    [seriesByFactory, multi],
+    [seriesByFactory, withAggregate],
   );
 
   const toggle = (key: string) =>
@@ -107,16 +117,16 @@ export function FactorySeriesChart({
   const data = useMemo(() => {
     const length = all.length;
     return Array.from({ length }, (_, i) => {
-      const row: Record<string, number | string> = {
-        label: all[i]?.label ?? "",
-        [ALL_KEY]: scale(all[i]?.[metric] ?? 0, metricDef.isRate),
-      };
+      const row: Record<string, number | string> = { label: all[i]?.label ?? "" };
+      if (withAggregate) {
+        row[ALL_KEY] = scale(all[i]?.[metric] ?? 0, metricDef.isRate);
+      }
       for (const s of seriesByFactory) {
         row[s.plantId] = scale(s.points[i]?.[metric] ?? 0, metricDef.isRate);
       }
       return row;
     });
-  }, [all, seriesByFactory, metric, metricDef.isRate]);
+  }, [all, seriesByFactory, metric, metricDef.isRate, withAggregate]);
 
   const visible = legend.filter((l) => !hidden.has(l.key));
 

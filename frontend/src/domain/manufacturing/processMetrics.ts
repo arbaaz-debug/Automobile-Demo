@@ -23,6 +23,7 @@ import {
 } from "@/domain/stamping/simulator";
 import type { ShiftId } from "@/domain/stamping/types";
 import { PROCESSES, PROCESS_BY_ID, processSequence, type ProcessDef } from "./processes";
+import { effectOn } from "./incidents";
 
 export interface ProcessDayMetrics {
   processId: string;
@@ -73,6 +74,11 @@ export function processChainForPlantDay(
     const capacity = plannedSets * def.capacityFactor;
 
     if (def.id === "press-shop") {
+      // The press shop's oee and ftt already carry any incident — it was
+      // applied in the batch layer — so only its capacity is adjusted here,
+      // otherwise the effect would be counted twice.
+      const pressCapacity = capacity * effectOn(plantId, def.id, dayKey).capacity;
+
       out.set(def.id, {
         processId: def.id,
         plantId,
@@ -83,9 +89,9 @@ export function processChainForPlantDay(
         rejected: pressProduced - pressGood,
         ftt: press.ftt,
         oee: press.oee,
-        capacity,
-        utilisation: capacity > 0 ? pressProduced / capacity : 0,
-        starvedBy: Math.max(0, Math.min(capacity, plannedSets) - pressProduced),
+        capacity: pressCapacity,
+        utilisation: pressCapacity > 0 ? pressProduced / pressCapacity : 0,
+        starvedBy: Math.max(0, Math.min(pressCapacity, plannedSets) - pressProduced),
       });
       continue;
     }
@@ -99,13 +105,26 @@ export function processChainForPlantDay(
 
     const rng = new Rng("process", def.id, plantId, dayKey, shifts.join(""));
 
+    // A live incident at this factory and process. Applied here, once, so the
+    // whole chain reacts: this process drops, and everything downstream of it
+    // starves without needing to know why.
+    const incident = effectOn(plantId, def.id, dayKey);
+
     // Day-to-day variation around the process's nominal character.
-    const oee = clamp(rng.clampedNormal(def.nominalOee, 0.035, 0.35, 0.95), 0.35, 0.95);
-    const ftt = clamp(rng.clampedNormal(def.nominalFtt, 0.012, 0.8, 0.999), 0.8, 0.999);
+    const oee = clamp(
+      rng.clampedNormal(def.nominalOee, 0.035, 0.35, 0.95) * incident.oee,
+      0.2,
+      0.95,
+    );
+    // The multiplier scales the *yield loss*, so 0.42 means the reject rate
+    // more than doubles rather than the yield falling to 42%.
+    const loss = (1 - clamp(rng.clampedNormal(def.nominalFtt, 0.012, 0.8, 0.999), 0.8, 0.999)) /
+      Math.max(0.05, incident.ftt);
+    const ftt = clamp(1 - loss, 0.45, 0.999);
 
     // Throughput is whichever runs out first: the feed, or the process's own
     // capacity degraded by how well it ran today.
-    const effectiveCapacity = capacity * (oee / def.nominalOee);
+    const effectiveCapacity = capacity * incident.capacity * (oee / def.nominalOee);
     const produced = Math.min(input, effectiveCapacity);
     const good = produced * ftt;
 

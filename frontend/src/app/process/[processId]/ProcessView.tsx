@@ -6,6 +6,7 @@ import { useCallback, useMemo } from "react";
 import {
   AlertTriangle,
   ArrowRight,
+  CalendarClock,
   CircleCheck,
   Gauge,
   Layers,
@@ -29,6 +30,7 @@ import { Card, CardBody, CardHeader, SectionLabel } from "@/components/ui/Card";
 import { Meter, StatTile } from "@/components/ui/StatTile";
 import { ProcessFlowStripMap } from "@/components/process/ProcessFlowStripMap";
 import { FactorySeriesChart } from "@/components/overview/FactorySeriesChart";
+import { IncidentsPanel } from "@/components/overview/IncidentsPanel";
 import { fmtInt, fmtPct } from "@/lib/format";
 import { BAND_COLOR, BAND_LABEL, SERIES, STATUS, STATUS_TEXT } from "@/lib/theme";
 import { processCrumbs, routes } from "@/lib/routes";
@@ -75,6 +77,7 @@ export function ProcessView({ processId }: { processId: string }) {
 
   const metrics = data?.chain.chain.find((c) => c.processId === processId);
   const processSeries = data?.seriesByProcess[processId];
+  const processIncidents = (data?.incidents ?? []).filter((i) => i.incident.processId === processId);
   const isBottleneck = data?.chain.bottleneck.processId === processId;
 
   const factoryRows = useMemo(() => {
@@ -264,6 +267,19 @@ export function ProcessView({ processId }: { processId: string }) {
               </CardBody>
             </Card>
           </div>
+
+          {/* --- events at this process ------------------------------------ */}
+
+          {processIncidents.length > 0 ? (
+            <Card className="mb-6">
+              <CardHeader
+                title="Events at this process"
+                subtitle="What moved this process's numbers in the selected window"
+                icon={<CalendarClock size={14} />}
+              />
+              <IncidentsPanel incidents={processIncidents} search={search} />
+            </Card>
+          ) : null}
 
           {/* --- trends ----------------------------------------------------- */}
 

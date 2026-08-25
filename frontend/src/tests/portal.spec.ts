@@ -535,10 +535,14 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     await openMetric(page, "Total rejections");
     const chart = page.locator("section", { hasText: "Vehicles rejected at any process" }).first();
 
-    // Everything is on by default, including the pan-India aggregate.
-    const all = chart.getByRole("button", { name: "All factories" });
+    // Every factory is on by default. The pan-India aggregate is deliberately
+    // absent here: it is the sum of these series, so plotting it would pin the
+    // axis to the total and flatten the comparison — and the card header above
+    // already states the group figure.
+    await expect(chart.getByRole("button", { name: "All factories" })).toHaveCount(0);
+    await expect(chart.locator("li button[aria-pressed]")).toHaveCount(5);
+
     const nashik = chart.getByRole("button", { name: "Nashik", exact: true });
-    await expect(all).toHaveAttribute("aria-pressed", "true");
     await expect(nashik).toHaveAttribute("aria-pressed", "true");
 
     await nashik.click();
@@ -592,6 +596,17 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     // the static host falls through to the app shell rather than a real page.
     await page.goto("/factory/nashik/bolero-neo/paint-shop/");
     await expect(page.getByRole("heading", { name: "Paint shop", level: 1 })).toHaveCount(0);
+  });
+
+  test("the pan-India aggregate is still drawn where it is not a sum of the series", async ({
+    page,
+  }) => {
+    // On a process page the chart compares one process across factories and the
+    // aggregate is a meaningful reference line, so it stays.
+    await page.goto("/process/press-shop/?range=7d");
+    await page.waitForTimeout(2500);
+    const chart = page.locator("section", { hasText: "throughput" }).first();
+    await expect(chart.getByRole("button", { name: "All factories" })).toBeVisible();
   });
 
   test("Get insight is on every page, top right", async ({ page }) => {
@@ -691,6 +706,81 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     await panel.getByRole("textbox").fill("what is the price of steel");
     await panel.getByRole("button", { name: "Ask" }).click();
     await expect(panel.getByText(/that question is outside it/)).toBeVisible();
+  });
+
+  test("an event tells the same story on every surface", async ({ page }) => {
+    // The Kandivali draw-press failure is the reference story. It must reach
+    // the overview, the factory, the process and the assistant from one place
+    // in the model — if any surface re-derives it, they will disagree.
+    const errors = watchConsole(page);
+
+    // 1. The overview lists it, with a measured cost.
+    await openOverview(page, "?range=30d");
+    const overviewRow = page
+      .locator("li button[aria-expanded]")
+      .filter({ hasText: "Draw press main drive failure" })
+      .first();
+    await expect(overviewRow).toBeVisible();
+    await expect(overviewRow).toContainText("Kandivali");
+    const cost = (await overviewRow.innerText()).match(/−([\d,]+)/)?.[1];
+    expect(cost, "overview should quantify the loss").toBeTruthy();
+
+    // 2. The factory it happened at shows the same event.
+    await page.goto("/factory/kandivali/?range=30d");
+    await page.waitForTimeout(3000);
+    const factoryRow = page
+      .locator("li button[aria-expanded]")
+      .filter({ hasText: "Draw press main drive failure" })
+      .first();
+    await expect(factoryRow).toBeVisible();
+    expect(await factoryRow.innerText()).toContain(cost!);
+
+    // And the damage is visible in that factory's own numbers, not just the
+    // event list: the press shop is its weakest process.
+    await expect(page.getByText("Where this factory is blocked")).toBeVisible();
+    const weakest = page.getByRole("link", { name: /Weakest process/ }).first();
+    await expect(weakest).toContainText("Press shop");
+
+    // 3. The process it happened at shows it too.
+    await page.goto("/process/press-shop/?range=30d");
+    await page.waitForTimeout(3000);
+    await expect(
+      page.locator("li button[aria-expanded]").filter({ hasText: "Draw press main drive failure" }),
+    ).toBeVisible();
+
+    // 4. The assistant tells the same story, with the same figure.
+    await page.goto("/?range=30d");
+    await page.waitForTimeout(3000);
+    await page.getByRole("button", { name: "Get insight" }).click();
+    const panel = page.getByRole("dialog", { name: "Insight" });
+    await expect(panel.getByRole("heading", { name: /Events in this window/ })).toBeVisible();
+    await panel.getByRole("textbox").fill("what happened this window");
+    await panel.getByRole("button", { name: "Ask" }).click();
+    await expect(panel.getByText(/events? overlap this window/)).toBeVisible();
+    await expect(panel.getByText(/Draw press main drive failure/).first()).toBeVisible();
+
+    expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
+  });
+
+  test("the data actually varies — factories and days are not flat", async ({ page }) => {
+    // The guard against the portal drifting back to a dataset where every plant
+    // and every day looks the same, which is what made it unreadable before.
+    await openOverview(page, "?range=30d");
+    await openMetric(page, "Vehicles produced");
+
+    const deltas = await page.evaluate(() => {
+      const svg = document.querySelector("svg.recharts-surface");
+      return svg
+        ? [...svg.querySelectorAll("text")]
+            .map((t) => t.textContent ?? "")
+            .filter((t) => /[\u25B2\u25BC]/.test(t))
+        : [];
+    });
+    expect(deltas).toHaveLength(5);
+
+    // At least one factory has moved by more than a couple of points.
+    const magnitudes = deltas.map((d) => parseFloat(d.replace(/[^\d.]/g, "")));
+    expect(Math.max(...magnitudes)).toBeGreaterThan(3);
   });
 
   test("portal is responsive at tablet width", async ({ page }) => {

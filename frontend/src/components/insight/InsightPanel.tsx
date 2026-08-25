@@ -308,6 +308,37 @@ export function InsightPanel({
                 </Section>
               ) : null}
 
+              {briefing.incidents.length > 0 ? (
+                <Section title={`Events in this window (${briefing.incidents.length})`}>
+                  <ul className="space-y-1.5">
+                    {briefing.incidents.map((e) => (
+                      <li
+                        key={e.incident.id}
+                        className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-2"
+                      >
+                        <p className="flex flex-wrap items-baseline justify-between gap-x-2 text-[12px] font-semibold text-[var(--text-primary)]">
+                          {e.incident.title}
+                          {e.lostTotal > 0.5 ? (
+                            <span
+                              className="tabular text-[11px] font-semibold"
+                              style={{ color: STATUS_TEXT.critical }}
+                            >
+                              −{Math.round(e.lostTotal).toLocaleString("en-IN")} vehicles
+                            </span>
+                          ) : null}
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">
+                          {e.factoryName} › {e.processName} · {e.incident.from} to {e.incident.to}
+                        </p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-[var(--text-secondary)]">
+                          {e.incident.narrative}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+              ) : null}
+
               {briefing.recommendations.length > 0 ? (
                 <Section title="Recommendations">
                   <ul className="space-y-2">

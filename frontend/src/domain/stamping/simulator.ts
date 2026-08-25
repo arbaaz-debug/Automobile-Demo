@@ -17,6 +17,7 @@
  */
 
 import { Rng, apportion } from "@/lib/rng";
+import { effectOn } from "@/domain/manufacturing/incidents";
 import {
   DEFECT_BY_CODE,
   ENERGY_TARIFF_INR,
@@ -316,6 +317,11 @@ function lineBatches(lineId: string, dayKey: string, shifts: ShiftId[]): Batch[]
 
       const brng = new Rng("batch", lineId, dayKey, shiftId, skuId);
 
+      // A live incident bites here, at the batch, so everything derived from
+      // batches moves with it: station counts, line OEE, plant totals, the
+      // vehicle chain and every page that reads them.
+      const incident = effectOn(line.plantId, "press-shop", dayKey);
+
       const nominalSpm = sku.nominalSpm * LINE_SPEED_FACTOR[line.type];
       const idealRunMin = planned / nominalSpm;
 
@@ -334,22 +340,28 @@ function lineBatches(lineId: string, dayKey: string, shifts: ShiftId[]): Batch[]
         plannedMin *
         (majorEvent ? brng.range(0.18, 0.32) : brng.range(0.02, 0.1)) *
         character.downtime *
-        shiftChar.downtime;
+        shiftChar.downtime *
+        // A press-shop incident shows up as lost minutes, which is how the
+        // shop actually books it.
+        (incident.oee < 1 ? 1 + (1 - incident.oee) * 2.5 : 1);
 
       const runMin = Math.max(2, plannedMin - downtimeMin - changeoverMin);
 
       const perfFactor = clamp(
-        brng.clampedNormal(character.perf * shiftChar.perf, 0.045, 0.6, 0.99),
-        0.6,
+        brng.clampedNormal(character.perf * shiftChar.perf, 0.045, 0.6, 0.99) * incident.oee,
+        0.25,
         0.99,
       );
       const spm = nominalSpm * perfFactor;
       const produced = Math.round(runMin * spm);
 
+      // An incident's `ftt` multiplier scales the *yield loss*, so 0.42 is
+      // "reject rate more than doubles", not "yield drops to 42%".
       const rejectRate = clamp(
-        brng.clampedNormal(character.reject * shiftChar.reject, 0.006, 0.003, 0.075),
+        brng.clampedNormal(character.reject * shiftChar.reject, 0.006, 0.003, 0.075) /
+          Math.max(0.05, incident.ftt),
         0.003,
-        0.075,
+        0.28,
       );
       const rejected = Math.round(produced * rejectRate);
       // A slice of non-conforming panels is recovered by rework (dent removal,

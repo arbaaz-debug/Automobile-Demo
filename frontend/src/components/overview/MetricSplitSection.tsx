@@ -93,6 +93,9 @@ export function MetricSplitSection({
           className="border-0 bg-transparent"
           height={compact ? 190 : 260}
           compact={compact}
+          /* The card header already carries the group figure, so the aggregate
+             line would restate it while flattening the factory comparison. */
+          showAggregate={false}
         />
       )}
 

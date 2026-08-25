@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo } from "react";
 import {
+  CalendarClock,
   Car,
   Gauge,
   Lightbulb,
@@ -24,6 +25,7 @@ import { Card, CardBody, CardHeader, SectionLabel } from "@/components/ui/Card";
 import { StatTile, Meter } from "@/components/ui/StatTile";
 import { FactorySeriesChart } from "@/components/overview/FactorySeriesChart";
 import { InsightsPanel } from "@/components/overview/InsightsPanel";
+import { IncidentsPanel } from "@/components/overview/IncidentsPanel";
 import { SkuTabs } from "@/components/factory/SkuTabs";
 import { FactoryProcessChain } from "@/components/factory/FactoryProcessChain";
 import { fmtInt, fmtPct } from "@/lib/format";
@@ -224,6 +226,19 @@ export function FactoryView({ factoryId }: { factoryId: string }) {
               />
             </CardBody>
           </Card>
+
+          {/* --- events at this factory ------------------------------------ */}
+
+          {data.incidents.length > 0 ? (
+            <Card className="mb-5">
+              <CardHeader
+                title="Events at this factory"
+                subtitle="Measured against this factory's output on the window's other days"
+                icon={<CalendarClock size={14} />}
+              />
+              <IncidentsPanel incidents={data.incidents} search={search} />
+            </Card>
+          ) : null}
 
           {/* --- models ------------------------------------------------------ */}
 

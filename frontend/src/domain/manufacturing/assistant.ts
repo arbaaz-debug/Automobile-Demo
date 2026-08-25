@@ -53,6 +53,8 @@ export interface Briefing {
    */
   focus: Focus | null;
   recommendations: Insight[];
+  /** Events overlapping the window, worst first. */
+  incidents: OverviewData["incidents"];
 }
 
 export interface Focus {
@@ -131,6 +133,7 @@ function groupRead(data: OverviewData): Omit<Briefing, "focus"> {
         isConstraint: c.processId === data.chain.bottleneck.processId,
       })),
     recommendations: data.insights.slice(0, 8),
+    incidents: [...data.incidents].sort((a, b) => b.lostTotal - a.lostTotal),
   };
 }
 
@@ -264,6 +267,7 @@ export interface Answer {
 /** Questions the assistant advertises, so the user is not guessing. */
 export const SUGGESTED_QUESTIONS = [
   "What is holding back output?",
+  "What happened this window?",
   "What should I fix first?",
   "Which factory is worst?",
   "What affects this?",
@@ -454,6 +458,31 @@ export function answerQuestion(
       rows: data.factories.map((f) => ({
         label: f.name,
         value: `${int(f.avgPerDay)}/day · ${pct(f.share)} of India`,
+      })),
+    };
+  }
+
+  // --- events --------------------------------------------------------------
+  if (has("happen", "event", "incident", "why did", "spike", "drop", "went wrong", "breakdown", "outage")) {
+    const events = briefing.incidents;
+    if (events.length === 0) {
+      return {
+        text:
+          "No recorded events overlap this window. Widen the range to 30 or 90 days if you are " +
+          "looking for something further back.",
+      };
+    }
+    const worst = events[0];
+    return {
+      text:
+        `${events.length} event${events.length === 1 ? "" : "s"} overlap this window. The costliest is ` +
+        `${worst.incident.title} at ${worst.factoryName} (${worst.processName}), ` +
+        `${worst.incident.from} to ${worst.incident.to}: output ran at ${int(worst.duringPerDay)}/day ` +
+        `against ${int(worst.baselinePerDay)}/day either side, about ${int(Math.max(0, worst.lostTotal))} ` +
+        `vehicles. ${worst.incident.narrative}`,
+      rows: events.map((e) => ({
+        label: `${e.factoryName} › ${e.processName} · ${e.incident.title}`,
+        value: e.lostTotal > 0.5 ? `−${int(e.lostTotal)} vehicles` : "no measurable dent",
       })),
     };
   }

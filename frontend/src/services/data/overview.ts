@@ -33,6 +33,11 @@ import {
 } from "@/domain/manufacturing/processMetrics";
 import { PROCESSES, PROCESS_BY_ID, terminalProcess } from "@/domain/manufacturing/processes";
 import { insightsForChains, type Insight } from "@/domain/manufacturing/insights";
+import {
+  incidentsInWindow,
+  incidentSpan,
+  type Incident,
+} from "@/domain/manufacturing/incidents";
 import { SERIES } from "@/lib/theme";
 import { buildWindow } from "./provider";
 
@@ -189,6 +194,25 @@ export interface OverviewData {
    * all eight pages.
    */
   seriesByProcess: Record<string, { all: OverviewPoint[]; byFactory: FactorySeries[] }>;
+  /** Events overlapping this window, with the output they actually cost. */
+  incidents: IncidentImpact[];
+}
+
+/** An incident, measured against what the factory was doing either side of it. */
+export interface IncidentImpact {
+  incident: Incident;
+  /** Production days of this incident inside the window. */
+  days: string[];
+  factoryName: string;
+  processName: string;
+  /** That factory's vehicles/day while the incident was live. */
+  duringPerDay: number;
+  /** Its vehicles/day on the window's other days. */
+  baselinePerDay: number;
+  /** Shortfall per day; negative where output was unaffected. */
+  lostPerDay: number;
+  /** Total shortfall across the incident's days in this window. */
+  lostTotal: number;
 }
 
 /** Stable colour per factory, assigned in catalog order and never cycled. */
@@ -442,6 +466,37 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
     };
   }
 
+  // --- incidents -----------------------------------------------------------
+  //
+  // Measured, not asserted: the cost of an event is that factory's output while
+  // it was live against its output on the window's other days. An incident that
+  // did not actually dent production reports as such rather than being given a
+  // number for the sake of it.
+
+  const incidents: IncidentImpact[] = incidentsInWindow(dayKeys, plantIds).map((incident) => {
+    const days = incidentSpan(incident, dayKeys);
+    const daily = dailyByFactory.get(incident.plantId) ?? [];
+    const inSet = new Set(days);
+
+    const during = daily.filter((d) => inSet.has(d.key));
+    const outside = daily.filter((d) => !inSet.has(d.key));
+
+    const duringPerDay = during.length > 0 ? sum(during, (d) => d.produced) / during.length : 0;
+    const baselinePerDay =
+      outside.length > 0 ? sum(outside, (d) => d.produced) / outside.length : duringPerDay;
+
+    return {
+      incident,
+      days,
+      factoryName: factoryLabel(incident.plantId),
+      processName: PROCESS_BY_ID.get(incident.processId)?.name ?? incident.processId,
+      duringPerDay,
+      baselinePerDay,
+      lostPerDay: baselinePerDay - duringPerDay,
+      lostTotal: (baselinePerDay - duringPerDay) * days.length,
+    };
+  });
+
   return {
     filters,
     range,
@@ -457,6 +512,7 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
     insights,
     plantIds,
     seriesByProcess,
+    incidents,
   };
 }
 

@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useId, useState } from "react";
-import { ChevronDown, Lightbulb, Route, SignpostBig } from "lucide-react";
+import { CalendarClock, ChevronDown, Lightbulb, Route, SignpostBig } from "lucide-react";
 import { PLANT_BY_ID, PLANTS } from "@/domain/stamping/catalog";
 import { useFilterState, useOverview } from "@/hooks/useOverview";
 import { AppShell } from "@/components/layout/AppShell";
@@ -10,6 +10,7 @@ import { PageSkeleton } from "@/components/layout/PageSkeleton";
 import { Card, CardBody, CardHeader, SectionLabel } from "@/components/ui/Card";
 import { MetricSplitSection, type MetricDef } from "@/components/overview/MetricSplitSection";
 import { RoadblockPanel } from "@/components/overview/RoadblockPanel";
+import { IncidentsPanel } from "@/components/overview/IncidentsPanel";
 import { InsightsPanel } from "@/components/overview/InsightsPanel";
 import { FactoryTable } from "@/components/overview/FactoryComparison";
 import { ProcessFlowStripMap } from "@/components/process/ProcessFlowStripMap";
@@ -185,6 +186,25 @@ export function OverviewView() {
               />
             ))}
           </div>
+
+          {/* --- events ------------------------------------------------------
+              Placed before the roadblocks: a spike in the numbers above is
+              usually an event, and knowing which one comes before diagnosing
+              the process. */}
+
+          {data.incidents.length > 0 ? (
+            <>
+              <SectionLabel>Events in this window</SectionLabel>
+              <Card className="mb-6">
+                <CardHeader
+                  title="What moved the numbers"
+                  subtitle="Cost is measured against the same factory's output on the window's other days"
+                  icon={<CalendarClock size={14} />}
+                />
+                <IncidentsPanel incidents={data.incidents} search={search} />
+              </Card>
+            </>
+          ) : null}
 
           {/* --- roadblocks + recommendations -------------------------------
               Side by side: the left card says where output is being lost, the
