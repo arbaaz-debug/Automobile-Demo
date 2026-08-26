@@ -24,6 +24,7 @@ import {
 import type { ShiftId } from "@/domain/stamping/types";
 import { PROCESSES, PROCESS_BY_ID, processSequence, type ProcessDef } from "./processes";
 import { effectOn } from "./incidents";
+import { profileFor } from "./plantProfiles";
 
 export interface ProcessDayMetrics {
   processId: string;
@@ -70,8 +71,13 @@ export function processChainForPlantDay(
   for (const def of processSequence()) {
     // Capacity is sized against this factory's own build programme, so a small
     // plant and a large one are each measured against what they are asked to
-    // build rather than against a group-wide constant.
-    const capacity = plannedSets * def.capacityFactor;
+    // build rather than against a group-wide constant — then adjusted by what
+    // this particular factory is like. Chakan's press shop has real headroom
+    // and its paint line does not; Kandivali is the other way round. That
+    // profile is why the constraint lands on a different process at each site
+    // instead of on the press shop everywhere.
+    const profile = profileFor(plantId, def.id);
+    const capacity = plannedSets * def.capacityFactor * profile.capacity;
 
     if (def.id === "press-shop") {
       // The press shop's oee and ftt already carry any incident — it was
@@ -110,21 +116,27 @@ export function processChainForPlantDay(
     // starves without needing to know why.
     const incident = effectOn(plantId, def.id, dayKey);
 
-    // Day-to-day variation around the process's nominal character.
+    // Day-to-day variation around the process's nominal character, shifted by
+    // how well this factory runs it.
+    const nominalOee = clamp(def.nominalOee * profile.oee, 0.3, 0.95);
     const oee = clamp(
-      rng.clampedNormal(def.nominalOee, 0.035, 0.35, 0.95) * incident.oee,
+      rng.clampedNormal(nominalOee, 0.035, 0.35, 0.95) * incident.oee,
       0.2,
       0.95,
     );
-    // The multiplier scales the *yield loss*, so 0.42 means the reject rate
+    // A process a factory runs poorly also scraps more of what it makes, so the
+    // yield loss carries the same profile — quality and effectiveness tell one
+    // story rather than two.
+    const nominalFtt = 1 - (1 - def.nominalFtt) / Math.max(0.5, profile.oee);
+    // The incident multiplier scales the *loss*, so 0.42 means the reject rate
     // more than doubles rather than the yield falling to 42%.
-    const loss = (1 - clamp(rng.clampedNormal(def.nominalFtt, 0.012, 0.8, 0.999), 0.8, 0.999)) /
+    const loss = (1 - clamp(rng.clampedNormal(nominalFtt, 0.012, 0.8, 0.999), 0.8, 0.999)) /
       Math.max(0.05, incident.ftt);
     const ftt = clamp(1 - loss, 0.45, 0.999);
 
     // Throughput is whichever runs out first: the feed, or the process's own
     // capacity degraded by how well it ran today.
-    const effectiveCapacity = capacity * incident.capacity * (oee / def.nominalOee);
+    const effectiveCapacity = capacity * incident.capacity * (oee / nominalOee);
     const produced = Math.min(input, effectiveCapacity);
     const good = produced * ftt;
 

@@ -32,6 +32,7 @@ import {
   type ProcessDayMetrics,
 } from "@/domain/manufacturing/processMetrics";
 import { PROCESSES, PROCESS_BY_ID, terminalProcess } from "@/domain/manufacturing/processes";
+import { profileNote } from "@/domain/manufacturing/plantProfiles";
 import { insightsForChains, type Insight } from "@/domain/manufacturing/insights";
 import {
   incidentsInWindow,
@@ -134,6 +135,14 @@ export interface FactoryRow {
   worstProcessId: string;
   worstProcessName: string;
   worstOee: number;
+  /**
+   * Why this factory is held back where it is — its standing plant
+   * characteristic, not an incident. Undefined where the weak process is just
+   * a bad window rather than a structural weakness.
+   */
+  worstProcessCause?: string;
+  /** The same, for the constraining process. */
+  bottleneckCause?: string;
   /**
    * The build programme this factory was scheduled against, in vehicles.
    * Used as the benchmark line on the production chart — a real target the
@@ -396,6 +405,8 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
       worstProcessId: worst.processId,
       worstProcessName: PROCESS_BY_ID.get(worst.processId)?.name ?? "",
       worstOee: worst.oee,
+      worstProcessCause: profileNote(plantId, worst.processId),
+      bottleneckCause: profileNote(plantId, avgChain.bottleneck.processId),
       // The press shop's input is the plant's scheduled build programme, so the
       // benchmark is what it was actually asked to build, not a round number.
       benchmark: benchmarkPerDay * days,

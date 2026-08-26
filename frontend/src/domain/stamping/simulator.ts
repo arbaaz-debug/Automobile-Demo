@@ -18,6 +18,7 @@
 
 import { Rng, apportion } from "@/lib/rng";
 import { effectOn } from "@/domain/manufacturing/incidents";
+import { profileFor } from "@/domain/manufacturing/plantProfiles";
 import {
   DEFECT_BY_CODE,
   ENERGY_TARIFF_INR,
@@ -307,8 +308,20 @@ function lineBatches(lineId: string, dayKey: string, shifts: ShiftId[]): Batch[]
   const out: Batch[] = [];
 
   for (const shiftId of shifts) {
-    const character = PLANT_CHARACTER[line.plantId] ?? PLANT_CHARACTER.nashik;
+    const base = PLANT_CHARACTER[line.plantId] ?? PLANT_CHARACTER.nashik;
     const shiftChar = SHIFT_CHARACTER[shiftId];
+
+    // How well this factory runs its press shop is declared once, in
+    // `plantProfiles`, alongside how it runs every other process — so the
+    // press shop's standing in the chain is set the same way as paint's or
+    // powertrain's rather than by a separate mechanism. A plant that stamps
+    // well runs faster, stops less and scraps less, all from one number.
+    const pressProfile = profileFor(line.plantId, "press-shop").oee;
+    const character = {
+      perf: base.perf * pressProfile,
+      downtime: base.downtime / pressProfile,
+      reject: base.reject / pressProfile,
+    };
 
     for (const skuId of line.skuIds) {
       const sku = SKU_BY_ID.get(skuId)!;

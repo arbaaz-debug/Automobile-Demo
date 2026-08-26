@@ -45,7 +45,7 @@ export function RoadblockPanel({
 
   if (layout === "stack") {
     return (
-      <ul className="divide-y divide-[var(--border)]/60">
+      <ul aria-label="Factory roadblocks" className="divide-y divide-[var(--border)]/60">
         {ranked.map((f) => {
           const band = bandForOee(f.worstOee);
           const severe = f.worstOee < 0.62;
@@ -128,8 +128,9 @@ export function RoadblockPanel({
                       {fmtPct(f.worstOee, 0)}
                     </span>
                   </span>
-                  <span className="mt-0.5 block text-[9px] text-[var(--text-muted)]">
-                    {severe ? "Critical — losing real output" : "OEE below target"}
+                  <span className="mt-0.5 block text-[9px] leading-snug text-[var(--text-muted)]">
+                    {f.worstProcessCause ??
+                      (severe ? "Critical — losing real output" : "OEE below target")}
                   </span>
                 </Link>
               </div>
@@ -236,8 +237,9 @@ export function RoadblockPanel({
                         {fmtPct(f.worstOee, 0)}
                       </span>
                     </span>
-                    <span className="mt-0.5 block text-[9px] text-[var(--text-muted)]">
-                      {severe ? "Critical — losing real output" : "OEE below target"}
+                    <span className="mt-0.5 block max-w-[190px] text-[9px] leading-snug text-[var(--text-muted)]">
+                      {f.worstProcessCause ??
+                        (severe ? "Critical — losing real output" : "OEE below target")}
                     </span>
                   </Link>
                 </td>

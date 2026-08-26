@@ -8,8 +8,26 @@ import { PLANTS } from "@/domain/stamping/catalog";
 import { useFilterState, useOverview } from "@/hooks/useOverview";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageSkeleton } from "@/components/layout/PageSkeleton";
-import { FactoryMap, MapLegend } from "@/components/landing/FactoryMap";
+import dynamic from "next/dynamic";
+import { MapLegend } from "@/components/landing/MapLegend";
 import { RoadblockPanel } from "@/components/overview/RoadblockPanel";
+
+/**
+ * Leaflet reads `window` as it loads, so the map cannot be part of the
+ * prerender this page is exported as. Loaded client-only, with a placeholder
+ * that reserves the same box so the card does not jump when tiles arrive.
+ */
+const FactoryMap = dynamic(
+  () => import("@/components/landing/FactoryMap").then((m) => m.FactoryMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="grid size-full place-items-center bg-[var(--surface-2)] text-[12px] text-[var(--text-muted)]">
+        Loading map…
+      </div>
+    ),
+  },
+);
 import { Card, CardHeader } from "@/components/ui/Card";
 import { fmtInt, fmtPct } from "@/lib/format";
 import { STATUS_TEXT } from "@/lib/theme";
@@ -143,11 +161,7 @@ export function LandingView() {
                 <MapLegend />
               </header>
               <div className="relative min-h-[520px] flex-1 overflow-hidden rounded-b-lg">
-                <FactoryMap
-                  factories={data.factories}
-                  search={search}
-                  className="absolute inset-0"
-                />
+                <FactoryMap factories={data.factories} search={search} className="size-full" />
               </div>
             </section>
 

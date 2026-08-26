@@ -1,57 +1,72 @@
 "use client";
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Minus, Plus, Maximize2 } from "lucide-react";
-import type { FactoryRow } from "@/services/data/overview";
+import { useRouter } from "next/navigation";
+import { MapContainer, TileLayer, CircleMarker, Tooltip, ZoomControl, useMap } from "react-leaflet";
+import { latLngBounds } from "leaflet";
+import "leaflet/dist/leaflet.css";
+import { ArrowRight } from "lucide-react";
 import { PLANT_BY_ID } from "@/domain/stamping/catalog";
 import { bandForOee } from "@/domain/stamping/oee";
-import { INDIA_RINGS } from "@/domain/geo/indiaOutline";
-import { WORLD_RINGS } from "@/domain/geo/worldOutline";
-import {
-  MAX_SPAN,
-  MIN_SPAN,
-  fitAspect,
-  initialView,
-  project,
-  type ViewBox,
-} from "@/domain/geo/project";
-import { fmtInt, fmtPct } from "@/lib/format";
-import { BAND_COLOR, COLORS } from "@/lib/theme";
+import type { FactoryRow } from "@/services/data/overview";
+import { BAND_COLOR, STATUS, STATUS_TEXT } from "@/lib/theme";
+import { fmtInt, fmtPct, cn } from "@/lib/format";
 import { routes } from "@/lib/routes";
 
-/** Marker sizes in screen pixels, so they hold their size through a zoom. */
-const MARKER_MIN = 6;
-const MARKER_RANGE = 10;
+/**
+ * The factory map.
+ *
+ * Leaflet with CARTO Positron tiles rather than the embedded SVG outline this
+ * replaced: a real slippy map pans and zooms to any level and puts each plant
+ * on a recognisable piece of ground — the Kandivali and Chakan sites are 120 km
+ * apart and only read as different places once you can zoom into Mumbai and
+ * Pune. The trade is that tiles come from the network, so the map degrades to
+ * grey panels offline where the SVG did not.
+ *
+ * Positron is a deliberately quiet basemap. Everything the portal draws on top
+ * — the markers and their labels — carries saturation, so the plants read as
+ * the foreground and the geography stays reference.
+ *
+ * Hovering a marker fills the detail card pinned to the right of the map. That
+ * keeps the reading position fixed: a popup anchored to the marker would move
+ * the numbers around the screen as you compare plants, and would cover the very
+ * neighbours you are comparing against.
+ */
 
-function pathFor(rings: [number, number][][]): string {
-  return rings
-    .map(
-      (ring) =>
-        ring
-          .map(([lng, lat], i) => {
-            const { x, y } = project(lng, lat);
-            return `${i === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
-          })
-          .join("") + "Z",
-    )
-    .join("");
-}
+const TILE_URL = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+const TILE_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
-const WORLD_PATH = pathFor(WORLD_RINGS);
-const INDIA_PATH = pathFor(INDIA_RINGS);
+/** Fallback view, used only if no plant has coordinates. */
+const INITIAL_CENTER: [number, number] = [22.4, 78.5];
+const INITIAL_ZOOM = 5;
 
 /**
- * Every factory, on a map that pans and zooms.
+ * Which side of its marker each plant's label sits on.
  *
- * The view opens on India because that is where the plants are, but it is not
- * confined to it — scroll to zoom, drag to pan, and the world is drawn behind
- * so zooming out shows context rather than a country floating in a void.
- *
- * Marker size carries output and colour carries effectiveness, but neither is
- * load-bearing alone: hover or focus gives the figures, and the legend names
- * each band in words.
+ * Nashik, Kandivali and Chakan are inside 150 km of each other, so at a zoom
+ * that holds all of India their labels land on top of one another. Leaflet has
+ * no label-collision solver, and the plant list is fixed and known, so the
+ * three are simply pushed apart in different directions. Anything unlisted
+ * defaults to sitting above its marker.
  */
+const LABEL_SIDE: Record<string, "top" | "bottom" | "left" | "right"> = {
+  nashik: "top",
+  kandivali: "left",
+  chakan: "bottom",
+  zaheerabad: "right",
+  haridwar: "top",
+};
+
+interface Site {
+  row: FactoryRow;
+  lat: number;
+  lng: number;
+  radius: number;
+  color: string;
+}
+
 export function FactoryMap({
   factories,
   search,
@@ -61,361 +76,330 @@ export function FactoryMap({
   search?: string | null;
   className?: string;
 }) {
-  const id = useId();
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ w: 0, h: 0 });
-  const [view, setView] = useState<ViewBox | null>(null);
-  const [active, setActive] = useState<string | null>(null);
-  const drag = useRef<{ x: number; y: number; view: ViewBox } | null>(null);
-  // Mirrored in state purely so the cursor can react — a ref cannot be read
-  // during render.
-  const [dragging, setDragging] = useState(false);
+  const router = useRouter();
+  const [activeId, setActiveId] = useState<string | null>(null);
 
-  // The viewBox has to match the container's shape or the drawing letterboxes
-  // and the HTML labels drift off their markers.
-  useLayoutEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect;
-      setSize({ w: width, h: height });
-      setView((prev) =>
-        prev ? fitAspect(prev, width / height) : initialView(width / height),
-      );
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  const reset = useCallback(() => {
-    if (size.w > 0) setView(initialView(size.w / size.h));
-  }, [size]);
-
-  /** Zooms by a factor, holding the given container point still. */
-  const zoomAt = useCallback(
-    (factor: number, px: number, py: number) => {
-      setView((prev) => {
-        if (!prev || size.w === 0) return prev;
-        const span = Math.min(MAX_SPAN, Math.max(MIN_SPAN, prev.w * factor));
-        const scale = span / prev.w;
-        const h = prev.h * scale;
-        // Keep the point under the cursor fixed: the fraction of the box it
-        // sits at must not change.
-        return {
-          x: prev.x + (px / size.w) * (prev.w - span),
-          y: prev.y + (py / size.h) * (prev.h - h),
-          w: span,
-          h,
-        };
-      });
-    },
-    [size],
-  );
-
-  // Wheel zoom is registered non-passively so the page does not scroll with it.
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const rect = el.getBoundingClientRect();
-      zoomAt(e.deltaY > 0 ? 1.18 : 1 / 1.18, e.clientX - rect.left, e.clientY - rect.top);
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [zoomAt]);
-
-  const maxProduced = Math.max(1, ...factories.map((f) => f.produced));
-
-  const sites = factories
-    .map((f) => {
+  const sites = useMemo<Site[]>(() => {
+    // Area, not radius, carries volume — a plant building twice as much should
+    // look twice as big, and radius alone would make it look four times bigger.
+    const max = Math.max(1, ...factories.map((f) => f.produced));
+    return factories.flatMap((f) => {
       const plant = PLANT_BY_ID.get(f.plantId);
-      if (!plant) return null;
-      const band = bandForOee(f.oee);
-      return {
-        row: f,
-        ...project(plant.lng, plant.lat),
-        colour: BAND_COLOR[band],
-        // Area, not radius, tracks output — a radius-linear bubble exaggerates
-        // the largest site by the square of its lead.
-        rPx: MARKER_MIN + MARKER_RANGE * Math.sqrt(f.produced / maxProduced),
-      };
-    })
-    .filter((s): s is NonNullable<typeof s> => s !== null)
-    .sort((a, b) => b.rPx - a.rPx);
+      if (!plant) return [];
+      return [
+        {
+          row: f,
+          lat: plant.lat,
+          lng: plant.lng,
+          radius: 8 + 14 * Math.sqrt(f.produced / max),
+          color: BAND_COLOR[bandForOee(f.oee)],
+        },
+      ];
+    });
+  }, [factories]);
 
-  // Projected units per pixel — markers are sized in px and drawn in units.
-  const unitsPerPx = view && size.w > 0 ? view.w / size.w : 1;
-  const placed = placeLabels(sites, view, size);
+  // Falls back to the factory needing attention most, so the card is never
+  // empty on arrival and the first thing read is the worst plant.
+  const fallback = useMemo(
+    () => [...factories].sort((a, b) => a.worstOee - b.worstOee)[0],
+    [factories],
+  );
+  const active = sites.find((s) => s.row.plantId === activeId)?.row ?? fallback;
 
   return (
-    <div
-      ref={wrapRef}
-      className={className}
-      onPointerDown={(e) => {
-        if (!view) return;
-        (e.target as Element).setPointerCapture?.(e.pointerId);
-        drag.current = { x: e.clientX, y: e.clientY, view };
-        setDragging(true);
-      }}
-      onPointerMove={(e) => {
-        const d = drag.current;
-        if (!d || size.w === 0) return;
-        setView({
-          ...d.view,
-          x: d.view.x - ((e.clientX - d.x) / size.w) * d.view.w,
-          y: d.view.y - ((e.clientY - d.y) / size.h) * d.view.h,
-        });
-      }}
-      onPointerUp={() => {
-        drag.current = null;
-        setDragging(false);
-      }}
-      onPointerCancel={() => {
-        drag.current = null;
-        setDragging(false);
-      }}
-      style={{ cursor: dragging ? "grabbing" : "grab", touchAction: "none" }}
-    >
-      {view ? (
-        <svg
-          viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
-          className="h-full w-full select-none"
-          role="img"
-          aria-labelledby={`${id}-title`}
-        >
-          <title id={`${id}-title`}>
-            {`Map showing ${sites.length} factories: ${sites
-              .map((s) => `${s.row.name}, ${fmtInt(s.row.produced)} vehicles`)
-              .join("; ")}`}
-          </title>
+    <div className={cn("relative", className)}>
+      <MapContainer
+        center={INITIAL_CENTER}
+        zoom={INITIAL_ZOOM}
+        minZoom={2}
+        maxZoom={18}
+        scrollWheelZoom
+        zoomControl={false}
+        className="size-full"
+        style={{ background: "#e8ecef" }}
+      >
+        <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} subdomains="abcd" maxZoom={20} />
+        {/* Left, so it never sits under the detail card. */}
+        <ZoomControl position="topleft" />
+        <FitToFactories sites={sites} />
 
-          {/* The rest of the world, recessive. */}
-          <path
-            d={WORLD_PATH}
-            fill="var(--surface-2)"
-            stroke={COLORS.grid}
-            strokeWidth={0.5 * unitsPerPx}
-            opacity={0.55}
-          />
-          {/* India, the subject. */}
-          <path
-            d={INDIA_PATH}
-            fill="var(--surface-3)"
-            stroke={COLORS.axis}
-            strokeWidth={0.8 * unitsPerPx}
-            strokeLinejoin="round"
-          />
+        {sites.map((s) => {
+          const on = s.row.plantId === active?.plantId;
+          return (
+            <CircleMarker
+              key={s.row.plantId}
+              center={[s.lat, s.lng]}
+              radius={s.radius}
+              pathOptions={{
+                color: s.color,
+                fillColor: s.color,
+                fillOpacity: on ? 0.55 : 0.32,
+                weight: on ? 3 : 2,
+              }}
+              eventHandlers={{
+                mouseover: () => setActiveId(s.row.plantId),
+                // Not cleared on mouseout: the card holds the last plant you
+                // looked at, so you can read it without keeping the pointer
+                // perfectly still on a 10-pixel dot.
+                click: () => router.push(routes.factory(s.row.plantId, search)),
+                keypress: (e) => {
+                  if ((e.originalEvent as KeyboardEvent).key === "Enter") {
+                    router.push(routes.factory(s.row.plantId, search));
+                  }
+                },
+              }}
+            >
+              <Tooltip
+                direction={LABEL_SIDE[s.row.plantId] ?? "top"}
+                offset={labelOffset(LABEL_SIDE[s.row.plantId] ?? "top", s.radius)}
+                permanent
+                className="factory-label"
+              >
+                <span className="font-semibold">{s.row.name}</span>
+              </Tooltip>
+            </CircleMarker>
+          );
+        })}
+      </MapContainer>
 
-          {sites.map((s) => (
-            <g key={s.row.plantId}>
-              <circle
-                cx={s.x}
-                cy={s.y}
-                r={s.rPx * 1.85 * unitsPerPx}
-                fill={s.colour}
-                opacity={active === s.row.plantId ? 0.35 : 0.18}
-              />
-              <circle
-                cx={s.x}
-                cy={s.y}
-                r={s.rPx * unitsPerPx}
-                fill={s.colour}
-                stroke={COLORS.surface1}
-                strokeWidth={1.2 * unitsPerPx}
-              />
-            </g>
-          ))}
-        </svg>
-      ) : null}
+      {/* Keyboard route to the same card. Leaflet's vector markers are not
+          focusable, so rather than leave the detail unreachable without a
+          pointer, the same factories are a real focusable list — visible only
+          when tabbed into. */}
+      <ul className="absolute left-2 top-2 z-[1000] flex gap-1">
+        {sites.map((s) => (
+          <li key={s.row.plantId}>
+            <button
+              type="button"
+              onFocus={() => setActiveId(s.row.plantId)}
+              onClick={() => router.push(routes.factory(s.row.plantId, search))}
+              className="sr-only focus:not-sr-only focus:rounded focus:bg-[var(--surface-1)] focus:px-2 focus:py-1 focus:text-[11px] focus:text-[var(--text-primary)] focus:outline focus:outline-2 focus:outline-[var(--series-1)]"
+            >
+              {s.row.name} detail
+            </button>
+          </li>
+        ))}
+      </ul>
 
-      {/* Labels live in HTML above the SVG: upright at any zoom, on the type
-          scale, and focusable in reading order. */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        {view
-          ? sites.map((s) => {
-              const left = ((s.x - view.x) / view.w) * 100;
-              const top = ((s.y - view.y) / view.h) * 100;
-              if (left < -5 || left > 105 || top < -5 || top > 105) return null;
+      {active ? <FactoryDetailCard row={active} search={search} /> : null}
 
-              const isActive = active === s.row.plantId;
-              const offset = placed.get(s.row.plantId) ?? { dx: 0, dy: 14 };
-
-              return (
-                <Link
-                  key={s.row.plantId}
-                  href={routes.plant(s.row.plantId, search)}
-                  onMouseEnter={() => setActive(s.row.plantId)}
-                  onMouseLeave={() => setActive(null)}
-                  onFocus={() => setActive(s.row.plantId)}
-                  onBlur={() => setActive(null)}
-                  onDragStart={(e) => e.preventDefault()}
-                  className="pointer-events-auto absolute -translate-x-1/2 rounded text-center"
-                  style={{
-                    left: `${left}%`,
-                    top: `${top}%`,
-                    marginLeft: `${offset.dx}px`,
-                    marginTop: `${offset.dy}px`,
-                    zIndex: isActive ? 20 : 10,
-                  }}
-                >
-                  <span
-                    className="block whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px] font-semibold transition"
-                    style={{
-                      borderColor: isActive ? s.colour : "var(--border)",
-                      backgroundColor: isActive
-                        ? "var(--surface-raised)"
-                        : "var(--surface-1)",
-                      color: "var(--text-primary)",
-                    }}
-                  >
-                    {s.row.name}
-                  </span>
-                  {isActive ? (
-                    <span className="mt-1 block whitespace-nowrap rounded border border-[var(--border-strong)] bg-[var(--surface-raised)] px-2 py-1 text-left shadow-xl">
-                      <span className="tabular block text-[11px] font-semibold text-[var(--text-primary)]">
-                        {fmtInt(s.row.produced)} vehicles
-                      </span>
-                      <span className="block text-[10px] text-[var(--text-muted)]">
-                        {fmtInt(s.row.avgPerDay)}/day · {fmtPct(s.row.oee, 1)} OEE
-                      </span>
-                      <span className="block text-[10px] text-[var(--text-muted)]">
-                        Blocked at {s.row.bottleneckProcessName}
-                      </span>
-                    </span>
-                  ) : null}
-                </Link>
-              );
-            })
-          : null}
-      </div>
-
-      <div className="absolute right-3 top-3 flex flex-col gap-1">
-        <MapButton label="Zoom in" onClick={() => zoomAt(1 / 1.4, size.w / 2, size.h / 2)}>
-          <Plus size={13} />
-        </MapButton>
-        <MapButton label="Zoom out" onClick={() => zoomAt(1.4, size.w / 2, size.h / 2)}>
-          <Minus size={13} />
-        </MapButton>
-        <MapButton label="Reset view" onClick={reset}>
-          <Maximize2 size={12} />
-        </MapButton>
-      </div>
+      {/* Leaflet's own CSS assumes a light host page and its tooltips carry a
+          white chip we do not want. Scoped to this component. */}
+      <style>{`
+        .leaflet-container { font: inherit; }
+        .leaflet-container .factory-label {
+          background: rgba(255,255,255,0.92);
+          border: 1px solid rgba(15,42,74,0.18);
+          border-radius: 5px;
+          box-shadow: none;
+          color: #14314f;
+          font-size: 11px;
+          padding: 1px 6px;
+          white-space: nowrap;
+        }
+        .leaflet-container .factory-label::before { display: none; }
+        .leaflet-control-zoom a {
+          background: #ffffff;
+          color: #14314f;
+          border-color: rgba(15,42,74,0.18);
+        }
+        .leaflet-control-attribution {
+          background: rgba(255,255,255,0.82);
+          font-size: 9px;
+        }
+        .leaflet-control-attribution a { color: #2b5f9e; }
+      `}</style>
     </div>
   );
 }
 
-function MapButton({
-  label,
-  onClick,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      onPointerDown={(e) => e.stopPropagation()}
-      title={label}
-      className="grid size-7 place-items-center rounded border border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-muted)] transition hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]"
-    >
-      {children}
-      <span className="sr-only">{label}</span>
-    </button>
-  );
+/** Clears the marker itself, whatever side the label sits on. */
+function labelOffset(
+  side: "top" | "bottom" | "left" | "right",
+  radius: number,
+): [number, number] {
+  const gap = radius + 3;
+  if (side === "top") return [0, -gap];
+  if (side === "bottom") return [0, gap];
+  return [side === "left" ? -gap : gap, 0];
 }
 
 /**
- * Nudges labels apart where sites sit close together.
+ * Sizes the map to its container, and frames every plant.
  *
- * Mumbai, Nashik and Pune are within about 150 km, so at the opening zoom their
- * labels land on top of one another. Each tries a short list of offsets and
- * takes the first that does not collide with one already placed. Recomputed on
- * every view change, because what overlaps at one zoom does not at another.
+ * Both halves are needed. Leaflet measures its container once, at construction,
+ * and this map is loaded client-only into a flex cell — so on first paint it
+ * has measured a box that has not been laid out yet, requests a handful of
+ * tiles and draws markers at the origin. `invalidateSize` re-measures, and a
+ * ResizeObserver repeats it whenever the card changes width.
+ *
+ * The frame is computed from the plants themselves rather than hardcoded to a
+ * centre and zoom, so adding a sixth factory brings it into view instead of
+ * leaving it off the edge of a view tuned for five.
  */
-function placeLabels(
-  sites: { row: { plantId: string; name: string }; x: number; y: number; rPx: number }[],
-  view: ViewBox | null,
-  size: { w: number; h: number },
-): Map<string, { dx: number; dy: number }> {
-  const out = new Map<string, { dx: number; dy: number }>();
-  if (!view || size.w === 0) return out;
+function FitToFactories({ sites }: { sites: Site[] }) {
+  const map = useMap();
+  const key = sites.map((s) => `${s.lat},${s.lng}`).join("|");
 
-  // Chip height plus a gutter: sizing the box exactly to the ~20px chip lets
-  // two labels clear by a pixel and still read as touching.
-  const H = 24;
-  const width = (name: string) => name.length * 6.8 + 22;
+  useEffect(() => {
+    const container = map.getContainer();
 
-  const candidates = [
-    { dx: 0, dy: 14 },
-    { dx: 0, dy: -26 },
-    { dx: 0, dy: 34 },
-    { dx: 0, dy: -46 },
-    { dx: -62, dy: -6 },
-    { dx: 62, dy: -6 },
-    { dx: -70, dy: 22 },
-    { dx: 70, dy: 22 },
-    { dx: 0, dy: 54 },
-    { dx: 0, dy: -66 },
-  ];
+    const fit = () => {
+      map.invalidateSize({ animate: false });
+      if (sites.length === 0) return;
+      const bounds = latLngBounds(sites.map((s) => [s.lat, s.lng] as [number, number]));
+      // Padded so a marker on the edge is not half off-screen, and capped so
+      // two plants 20 km apart do not open at street level.
+      map.fitBounds(bounds, { padding: [70, 70], maxZoom: 6, animate: false });
+    };
 
-  const boxes: { x1: number; y1: number; x2: number; y2: number }[] = [];
+    fit();
+    const ro = new ResizeObserver(() => map.invalidateSize({ animate: false }));
+    ro.observe(container);
+    return () => ro.disconnect();
+    // `key` stands in for the site coordinates; `sites` is rebuilt each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, key]);
 
-  // Largest first, so the biggest site keeps the natural position.
-  for (const s of [...sites].sort((a, b) => b.rPx - a.rPx)) {
-    const px = ((s.x - view.x) / view.w) * size.w;
-    const py = ((s.y - view.y) / view.h) * size.h;
-    const w = width(s.row.name);
-
-    const chosen =
-      candidates.find((c) => {
-        const box = {
-          x1: px + c.dx - w / 2,
-          y1: py + c.dy,
-          x2: px + c.dx + w / 2,
-          y2: py + c.dy + H,
-        };
-        return !boxes.some(
-          (b) => box.x1 < b.x2 && box.x2 > b.x1 && box.y1 < b.y2 && box.y2 > b.y1,
-        );
-      }) ?? candidates[candidates.length - 1];
-
-    boxes.push({
-      x1: px + chosen.dx - w / 2,
-      y1: py + chosen.dy,
-      x2: px + chosen.dx + w / 2,
-      y2: py + chosen.dy + H,
-    });
-    out.set(s.row.plantId, chosen);
-  }
-
-  return out;
+  return null;
 }
 
-/** Names each health band in words, so marker colour is never the only cue. */
-export function MapLegend() {
-  const bands = [
-    { label: "On target", color: BAND_COLOR.good },
-    { label: "Below target", color: BAND_COLOR.fair },
-    { label: "Critical", color: BAND_COLOR.poor },
-  ];
+/**
+ * The metrics for whichever factory the pointer is on.
+ *
+ * Dark against the light basemap: this is portal chrome sitting over a
+ * reference layer, and the contrast is what keeps it legible at every zoom
+ * level and over every kind of terrain the tiles might show.
+ */
+function FactoryDetailCard({ row, search }: { row: FactoryRow; search?: string | null }) {
+  const band = bandForOee(row.oee);
+  const status =
+    band === "poor" || row.worstOee < 0.62
+      ? { label: "Critical", color: STATUS_TEXT.critical, dot: STATUS.critical }
+      : band === "fair"
+        ? { label: "Below target", color: BAND_COLOR.fair, dot: BAND_COLOR.fair }
+        : { label: "On target", color: BAND_COLOR.good, dot: BAND_COLOR.good };
 
   return (
-    <ul className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      {bands.map((b) => (
-        <li key={b.label} className="flex items-center gap-1.5 text-[10px]">
+    <aside
+      aria-live="polite"
+      aria-label={`Metrics for ${row.name}`}
+      className="pointer-events-auto absolute right-3 top-3 z-[1000] w-[248px] rounded-lg border border-[var(--border)] bg-[var(--surface-1)]/97 p-3 shadow-[0_8px_28px_rgba(8,24,45,0.34)] backdrop-blur"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="truncate text-[14px] font-semibold text-[var(--text-primary)]">
+            {row.name}
+          </h3>
+          <p className="truncate text-[10px] text-[var(--text-muted)]">
+            {row.state} · {row.plantName}
+          </p>
+        </div>
+        <span
+          className="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em]"
+          style={{ backgroundColor: `${status.dot}26`, color: status.color }}
+        >
+          {status.label}
+        </span>
+      </div>
+
+      <p className="mt-2 flex items-baseline gap-1.5">
+        <span className="tabular text-[24px] font-semibold leading-none text-[var(--text-primary)]">
+          {fmtInt(row.produced)}
+        </span>
+        <span className="text-[10px] text-[var(--text-muted)]">vehicles</span>
+        <Change value={row.deltas.produced.change} />
+      </p>
+
+      <dl className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-[var(--border)] pt-2.5">
+        <Stat label="Avg / day" value={fmtInt(row.avgPerDay)} change={row.deltas.avgPerDay.change} />
+        <Stat label="Rejections" value={fmtInt(row.rejected)} change={row.deltas.rejected.change} inverse />
+        <Stat label="First time through" value={fmtPct(row.rty, 1)} change={row.deltas.rty.change} />
+        <Stat label="OEE" value={fmtPct(row.oee, 1)} change={row.deltas.oee.change} />
+      </dl>
+
+      <div className="mt-2.5 border-t border-[var(--border)] pt-2">
+        <p className="text-[9px] uppercase tracking-[0.1em] text-[var(--text-muted)]">
+          Weakest process
+        </p>
+        <p className="mt-0.5 flex items-baseline gap-1.5">
+          <span className="truncate text-[12px] font-medium text-[var(--text-primary)]">
+            {row.worstProcessName}
+          </span>
           <span
-            aria-hidden
-            className="size-2 shrink-0 rounded-full"
-            style={{ backgroundColor: b.color }}
-          />
-          <span className="text-[var(--text-muted)]">{b.label}</span>
-        </li>
-      ))}
-      <li className="text-[10px] text-[var(--text-muted)]">· size = vehicles built</li>
-    </ul>
+            className="tabular shrink-0 text-[12px] font-semibold"
+            style={{ color: BAND_COLOR[bandForOee(row.worstOee)] }}
+          >
+            {fmtPct(row.worstOee, 1)}
+          </span>
+        </p>
+        {row.worstProcessCause ? (
+          <p className="mt-0.5 text-[9px] leading-snug text-[var(--text-muted)]">
+            {row.worstProcessCause}
+          </p>
+        ) : null}
+      </div>
+
+      <Link
+        href={routes.factory(row.plantId, search)}
+        className="mt-2.5 inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--series-1)] underline-offset-2 hover:underline"
+      >
+        Open {row.name}
+        <ArrowRight size={12} aria-hidden />
+      </Link>
+    </aside>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  change,
+  inverse = false,
+}: {
+  label: string;
+  value: string;
+  change: number | null;
+  inverse?: boolean;
+}) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[9px] uppercase leading-tight tracking-[0.08em] text-[var(--text-muted)]">
+        {label}
+      </dt>
+      <dd className="mt-0.5 flex items-baseline gap-1">
+        <span className="tabular text-[13px] font-semibold text-[var(--text-primary)]">{value}</span>
+        <Change value={change} inverse={inverse} small />
+      </dd>
+    </div>
+  );
+}
+
+/** Up is not always good: more rejections is a worse result, so it inverts. */
+function Change({
+  value,
+  inverse = false,
+  small = false,
+}: {
+  value: number | null;
+  inverse?: boolean;
+  small?: boolean;
+}) {
+  // `change` is fractional, and null where there is no comparable prior window.
+  const pct = value == null ? null : value * 100;
+  if (pct == null || !Number.isFinite(pct) || Math.abs(pct) < 0.05) {
+    return (
+      <span className={cn("text-[var(--text-muted)]", small ? "text-[9px]" : "text-[10px]")}>—</span>
+    );
+  }
+  const up = pct > 0;
+  const good = inverse ? !up : up;
+  return (
+    <span
+      className={cn("tabular font-semibold", small ? "text-[9px]" : "text-[10px]")}
+      style={{ color: good ? STATUS_TEXT.good : STATUS_TEXT.critical }}
+    >
+      {up ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}%
+    </span>
   );
 }

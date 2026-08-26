@@ -793,19 +793,23 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     await expect(
       page.getByRole("heading", { name: /Mahindra manufacturing · India/ }),
     ).toBeVisible();
-    await page.waitForTimeout(3000);
+    // Leaflet is loaded client-only and pulls tiles over the network.
+    await page.waitForSelector("img.leaflet-tile-loaded", { timeout: 20_000 });
+    await page.waitForTimeout(2500);
 
-    // The map is inline SVG — no tile server — with a marker per factory.
-    const map = page.getByRole("img", { name: /Map showing 5 factories/ });
-    await expect(map).toBeVisible();
-    // Scoped to the map: the attention rail links the same factories again.
-    const mapPanel = page.getByRole("region", { name: "Factory locations" });
-    await expect(mapPanel.locator("a[href*='/factory/']")).toHaveCount(5);
+    // A real slippy map, with basemap tiles and a marker per factory.
+    await expect(page.locator(".leaflet-container")).toBeVisible();
+    expect(await page.locator("img.leaflet-tile-loaded").count()).toBeGreaterThan(3);
+    const markers = page.locator("path.leaflet-interactive");
+    await expect(markers).toHaveCount(5);
     for (const name of ["Nashik", "Chakan", "Kandivali", "Haridwar", "Zaheerabad"]) {
-      await expect(
-        mapPanel.locator("a[href*='/factory/'] span").filter({ hasText: new RegExp(`^${name}$`) }),
-      ).toBeVisible();
+      await expect(page.locator(".factory-label").filter({ hasText: name })).toBeVisible();
     }
+
+    // The markers are actually placed, not collapsed at the origin — the
+    // failure mode when Leaflet measures its container before layout.
+    const paths = await markers.evaluateAll((ns) => ns.map((n) => n.getAttribute("d") ?? ""));
+    expect(paths.every((d) => d !== "M0 0")).toBe(true);
 
     // The headline metric, and the four supporting ones, each with a change.
     await expect(page.getByText("Total vehicles produced")).toBeVisible();
@@ -815,32 +819,12 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
       "First time through",
       "Group OEE",
     ]) {
-      await expect(page.getByText(label, { exact: true })).toBeVisible();
+      await expect(page.getByText(label, { exact: true }).first()).toBeVisible();
     }
     const arrows = await page.evaluate(
       () => (document.body.innerText.match(/[\u25B2\u25BC]\s*\d/g) ?? []).length,
     );
     expect(arrows, "each metric shows a change arrow").toBeGreaterThanOrEqual(5);
-
-    // Labels must not collide — three of these plants are within 150 km.
-    const boxes = await Promise.all(
-      ["Nashik", "Chakan", "Kandivali", "Haridwar", "Zaheerabad"].map((n) =>
-        mapPanel
-          .locator("a[href*='/factory/'] span")
-          .filter({ hasText: new RegExp(`^${n}$`) })
-          .first()
-          .boundingBox(),
-      ),
-    );
-    for (let i = 0; i < boxes.length; i++) {
-      for (let j = i + 1; j < boxes.length; j++) {
-        const a = boxes[i]!;
-        const c = boxes[j]!;
-        const overlap =
-          a.x < c.x + c.width && a.x + a.width > c.x && a.y < c.y + c.height && a.y + a.height > c.y;
-        expect(overlap, `labels ${i} and ${j} overlap`).toBe(false);
-      }
-    }
 
     // Production reads on the left, the four measures that qualify it on the
     // same line to its right — not stacked down a column.
@@ -852,29 +836,28 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     expect(lb.x, "supporting metrics sit right of production").toBeGreaterThan(hb.x);
 
     // What needs attention sits beside the map, not below the fold.
-    await expect(page.getByRole("heading", { name: "Needs attention" })).toBeVisible();
-    const rail = (await page
-      .getByRole("heading", { name: "Needs attention" })
-      .boundingBox())!;
-    const mapBox = (await map.boundingBox())!;
+    const attention = page.getByRole("heading", { name: "Needs attention" });
+    await expect(attention).toBeVisible();
+    const rail = (await attention.boundingBox())!;
+    const mapBox = (await page.locator(".leaflet-container").boundingBox())!;
     expect(rail.x, "attention rail is right of the map").toBeGreaterThan(mapBox.x);
 
-    // The map is a real map: it zooms past India and back.
-    const viewBox = () => map.getAttribute("viewBox");
-    const start = (await viewBox())!.split(" ").map(Number);
-    for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Zoom out" }).click();
-    await page.waitForTimeout(500);
-    const out = (await viewBox())!.split(" ").map(Number);
-    expect(out[2], "zooming out reaches beyond India").toBeGreaterThan(start[2] * 3);
-
-    await page.getByRole("button", { name: "Zoom in" }).click();
-    await page.waitForTimeout(400);
-    const back = (await viewBox())!.split(" ").map(Number);
-    expect(back[2]).toBeLessThan(out[2]);
-
-    await page.getByRole("button", { name: "Reset view" }).click();
-    await page.waitForTimeout(400);
-    expect((await viewBox())!.split(" ").map(Number)[2]).toBeCloseTo(start[2], 1);
+    // Factory labels must not collide — three of these plants are within 150 km.
+    const boxes = await page.locator(".factory-label").evaluateAll((ns) =>
+      ns.map((n) => {
+        const r = n.getBoundingClientRect();
+        return { x: r.x, y: r.y, w: r.width, h: r.height };
+      }),
+    );
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i];
+        const c = boxes[j];
+        const overlap =
+          a.x < c.x + c.w && a.x + a.w > c.x && a.y < c.y + c.h && a.y + a.h > c.y;
+        expect(overlap, `labels ${i} and ${j} overlap`).toBe(false);
+      }
+    }
 
     // View details carries the window through to the overview.
     await page.getByRole("link", { name: /View details/ }).click();
@@ -885,6 +868,106 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     ).toBeVisible();
 
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
+  });
+
+  test("hovering a factory fills the detail card beside the map", async ({ page }) => {
+    const errors = watchConsole(page);
+    await page.goto("/?range=30d");
+    await page.waitForSelector("img.leaflet-tile-loaded", { timeout: 20_000 });
+    await page.waitForTimeout(2500);
+
+    const card = page.locator("aside[aria-label^='Metrics for']");
+    await expect(card).toBeVisible();
+
+    // The card is pinned to the right of the map, not floating over the marker.
+    const mapBox = (await page.locator(".leaflet-container").boundingBox())!;
+    const cardBox = (await card.boundingBox())!;
+    expect(cardBox.x, "card sits in the right half of the map").toBeGreaterThan(
+      mapBox.x + mapBox.width / 2,
+    );
+
+    // Hovering two different markers names two different factories, and the
+    // card holds a full set of metrics for each.
+    const markers = page.locator("path.leaflet-interactive");
+    const seen: string[] = [];
+    for (const i of [0, 1, 2]) {
+      await markers.nth(i).hover();
+      await page.waitForTimeout(500);
+      const label = (await card.getAttribute("aria-label")) ?? "";
+      seen.push(label);
+      const text = await card.innerText();
+      for (const metric of ["AVG / DAY", "REJECTIONS", "FIRST TIME THROUGH", "OEE"]) {
+        expect(text, `${label} shows ${metric}`).toContain(metric);
+      }
+      expect(text).toContain("WEAKEST PROCESS");
+    }
+    expect(new Set(seen).size, "different markers show different factories").toBeGreaterThan(1);
+
+    // And the card is a way in, not a dead end.
+    await expect(card.getByRole("link", { name: /^Open / })).toBeVisible();
+
+    expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
+  });
+
+  test("the map zooms and pans past the initial frame", async ({ page }) => {
+    await page.goto("/?range=7d");
+    await page.waitForSelector("img.leaflet-tile-loaded", { timeout: 20_000 });
+    await page.waitForTimeout(2500);
+
+    // The zoom level a tile URL encodes. Leaflet keeps tiles from the previous
+    // level on screen through the transition, so the *modal* level across all
+    // loaded tiles is what the map has actually settled on.
+    const zoomOf = () =>
+      page.locator(".leaflet-container").evaluate((n) => {
+        const counts = new Map<number, number>();
+        for (const t of n.querySelectorAll("img.leaflet-tile-loaded")) {
+          const z = Number(new URL((t as HTMLImageElement).src).pathname.split("/").at(-3));
+          counts.set(z, (counts.get(z) ?? 0) + 1);
+        }
+        return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? NaN;
+      });
+
+    const start = await zoomOf();
+    expect(Number.isFinite(start)).toBe(true);
+
+    await page.locator("a.leaflet-control-zoom-in").click();
+    await page.waitForTimeout(2000);
+    expect(await zoomOf(), "zooming in raises the tile level").toBeGreaterThan(start);
+
+    await page.locator("a.leaflet-control-zoom-out").click();
+    await page.waitForTimeout(1500);
+    await page.locator("a.leaflet-control-zoom-out").click();
+    await page.waitForTimeout(2500);
+    expect(await zoomOf(), "and zooming out lowers it past where it started").toBeLessThan(
+      start,
+    );
+  });
+
+  test("factories are blocked by different processes, each with a reason", async ({ page }) => {
+    // The model must not collapse to "the press shop is the problem everywhere",
+    // which is what it did before each plant had its own profile.
+    await page.goto("/?range=30d");
+    await page.waitForSelector("img.leaflet-tile-loaded", { timeout: 20_000 });
+    await page.waitForTimeout(2500);
+
+    const rail = page.getByRole("list", { name: "Factory roadblocks" });
+    const rows = rail.locator("> li");
+    await expect(rows).toHaveCount(5);
+
+    const constraints = new Set<string>();
+    const weakest = new Set<string>();
+    for (let i = 0; i < 5; i++) {
+      const text = await rows.nth(i).innerText();
+      constraints.add(text.split("CONSTRAINT")[1].split("%")[0].trim());
+      weakest.add(text.split("WEAKEST PROCESS")[1].split("%")[0].trim());
+    }
+    expect(constraints.size, `constraints were: ${[...constraints]}`).toBeGreaterThanOrEqual(4);
+    expect(weakest.size, `weakest were: ${[...weakest]}`).toBeGreaterThanOrEqual(3);
+
+    // And the roadblock says why, not just where.
+    const railText = await rail.innerText();
+    expect(railText).toContain("paint line");
+    expect(railText).toContain("supply railed in");
   });
 
   test("the overview drops the events list — attention lives on the landing page", async ({
