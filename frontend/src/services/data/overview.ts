@@ -121,6 +121,8 @@ export interface FactoryRow {
   produced: number;
   good: number;
   rejected: number;
+  /** Rejections across the whole chain, against vehicles built. */
+  rejectRate: number;
   rty: number;
   oee: number;
   avgPerDay: number;
@@ -397,6 +399,7 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
       produced: p,
       good: g,
       rejected: r,
+      rejectRate: p > 0 ? r / p : 0,
       rty: p > 0 ? g / p : 0,
       oee,
       avgPerDay: p / days,

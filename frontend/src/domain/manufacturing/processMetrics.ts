@@ -26,6 +26,23 @@ import { PROCESSES, PROCESS_BY_ID, processSequence, type ProcessDef } from "./pr
 import { effectOn } from "./incidents";
 import { profileFor } from "./plantProfiles";
 
+/**
+ * The most of a day's build any one factory may reject across the whole chain.
+ *
+ * Eight sequential processes each rejecting a plausible-looking share compound
+ * into a chain that scraps a third of its output, which is not what a vehicle
+ * plant does — most quality loss in assembly is rework, and only what a process
+ * genuinely fails to pass on is counted here. The per-process rates in
+ * `processes.ts` are set so the chain lands near 6% on an ordinary day; this is
+ * the backstop for a bad one, so a stacked-up incident cannot drive a factory's
+ * reject rate somewhere a plant manager would not recognise.
+ *
+ * Enforced by scaling the day's losses back proportionally rather than by
+ * truncating one process, so the shape of the day survives: whichever process
+ * was worst is still worst, it just cannot take the whole chain with it.
+ */
+export const MAX_CHAIN_REJECT_RATE = 0.13;
+
 export interface ProcessDayMetrics {
   processId: string;
   plantId: string;
@@ -67,6 +84,15 @@ export function processChainForPlantDay(
   const plannedSets = press.planned / PANELS_PER_VEHICLE;
 
   const out = new Map<string, ProcessDayMetrics>();
+
+  // Yields are drawn up front, before the flow is solved.
+  //
+  // A process's first-time-through rate does not depend on how much reached it,
+  // so it can be settled ahead of the sequential solve — which is what makes it
+  // possible to hold the whole chain to `MAX_CHAIN_REJECT_RATE`. Bounding one
+  // process at a time could not: eight individually-reasonable losses still add
+  // up to an unreasonable total.
+  const fttById = drawChainYields(plantId, dayKey, shifts, press.ftt);
 
   for (const def of processSequence()) {
     // Capacity is sized against this factory's own build programme, so a small
@@ -124,15 +150,7 @@ export function processChainForPlantDay(
       0.2,
       0.95,
     );
-    // A process a factory runs poorly also scraps more of what it makes, so the
-    // yield loss carries the same profile — quality and effectiveness tell one
-    // story rather than two.
-    const nominalFtt = 1 - (1 - def.nominalFtt) / Math.max(0.5, profile.oee);
-    // The incident multiplier scales the *loss*, so 0.42 means the reject rate
-    // more than doubles rather than the yield falling to 42%.
-    const loss = (1 - clamp(rng.clampedNormal(nominalFtt, 0.012, 0.8, 0.999), 0.8, 0.999)) /
-      Math.max(0.05, incident.ftt);
-    const ftt = clamp(1 - loss, 0.45, 0.999);
+    const ftt = fttById.get(def.id)!;
 
     // Throughput is whichever runs out first: the feed, or the process's own
     // capacity degraded by how well it ran today.
@@ -157,6 +175,61 @@ export function processChainForPlantDay(
   }
 
   return processSequence().map((d) => out.get(d.id)!);
+}
+
+/**
+ * Every modelled process's first-time-through rate for one plant-day, already
+ * held to the chain's reject-rate bound.
+ *
+ * The press shop is not drawn here — its yield is the press simulator's actual
+ * scrap, so the station pages and the chain report the same number — but its
+ * loss counts against the bound, and the remaining processes absorb the
+ * scaling if the day would otherwise overrun.
+ */
+function drawChainYields(
+  plantId: string,
+  dayKey: string,
+  shifts: ShiftId[],
+  pressFtt: number,
+): Map<string, number> {
+  const losses = new Map<string, number>();
+
+  for (const def of processSequence()) {
+    if (def.id === "press-shop") continue;
+
+    const profile = profileFor(plantId, def.id);
+    const rng = new Rng("process", def.id, plantId, dayKey, shifts.join(""));
+    const incident = effectOn(plantId, def.id, dayKey);
+
+    // A process a factory runs poorly also scraps more of what it makes, so the
+    // yield loss carries the same profile — quality and effectiveness tell one
+    // story rather than two.
+    const nominalFtt = 1 - (1 - def.nominalFtt) / Math.max(0.5, profile.oee);
+    // Day-to-day spread is proportional to the loss, not a fixed number of
+    // percentage points: a flat 1.2pp sigma around a 0.45% loss would swing the
+    // reject rate by an order of magnitude between days.
+    const fttSigma = Math.max(0.0006, (1 - nominalFtt) * 0.32);
+    // The incident multiplier scales the *loss*, so 0.42 means the reject rate
+    // more than doubles rather than the yield falling to 42%.
+    losses.set(
+      def.id,
+      (1 - clamp(rng.clampedNormal(nominalFtt, fttSigma, 0.9, 0.9995), 0.9, 0.9995)) /
+        Math.max(0.05, incident.ftt),
+    );
+  }
+
+  // Hold the chain to its bound. The press shop's own scrap is already spent,
+  // so the modelled processes share what is left of the allowance.
+  const pressLoss = Math.max(0, 1 - pressFtt);
+  const modelled = sum([...losses.values()], (v) => v);
+  const allowance = Math.max(0, MAX_CHAIN_REJECT_RATE - pressLoss);
+  const scale = modelled > allowance && modelled > 0 ? allowance / modelled : 1;
+
+  const out = new Map<string, number>();
+  for (const [id, loss] of losses) {
+    out.set(id, clamp(1 - loss * scale, 1 - MAX_CHAIN_REJECT_RATE, 0.9995));
+  }
+  return out;
 }
 
 /** Pan-India chain for one day: every plant's chain, summed per process. */

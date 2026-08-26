@@ -135,11 +135,11 @@ export const PLANT_PROCESS_PROFILE: Record<string, PlantProfile> = {
  * before the draw press failed.
  */
 export const PLANT_PROGRAMME: Record<string, number> = {
-  haridwar: 0.72,
-  zaheerabad: 0.71,
-  nashik: 0.82,
-  chakan: 0.79,
-  kandivali: 0.75,
+  haridwar: 0.8,
+  zaheerabad: 0.82,
+  nashik: 0.95,
+  chakan: 0.92,
+  kandivali: 0.88,
 };
 
 /** The committed share for a plant; falls back to the group's median. */

@@ -313,7 +313,13 @@ function FactoryDetailCard({ row, search }: { row: FactoryRow; search?: string |
 
       <dl className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-[var(--border)] pt-2.5">
         <Stat label="Avg / day" value={fmtInt(row.avgPerDay)} change={row.deltas.avgPerDay.change} />
-        <Stat label="Rejections" value={fmtInt(row.rejected)} change={row.deltas.rejected.change} inverse />
+        <Stat
+          label="Rejections"
+          value={fmtInt(row.rejected)}
+          change={row.deltas.rejected.change}
+          inverse
+          note={`${fmtPct(row.rejectRate, 1)} rate`}
+        />
         <Stat label="First time through" value={fmtPct(row.rty, 1)} change={row.deltas.rty.change} />
         <Stat label="OEE" value={fmtPct(row.oee, 1)} change={row.deltas.oee.change} />
       </dl>
@@ -356,11 +362,14 @@ function Stat({
   value,
   change,
   inverse = false,
+  note,
 }: {
   label: string;
   value: string;
   change: number | null;
   inverse?: boolean;
+  /** A second reading of the figure, e.g. a count's rate. */
+  note?: string;
 }) {
   return (
     <div className="min-w-0">
@@ -371,6 +380,7 @@ function Stat({
         <span className="tabular text-[13px] font-semibold text-[var(--text-primary)]">{value}</span>
         <Change value={change} inverse={inverse} small />
       </dd>
+      {note ? <dd className="tabular text-[9px] text-[var(--text-muted)]">{note}</dd> : null}
     </div>
   );
 }

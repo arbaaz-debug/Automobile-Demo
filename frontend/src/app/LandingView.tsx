@@ -130,6 +130,7 @@ export function LandingView() {
                 value={fmtInt(data.totals.rejected)}
                 change={groupChange(data, "rejected")}
                 inverse
+                context={`${fmtPct(data.totals.rejectRate, 1)} rejection rate`}
               />
               <MetricCard
                 label="First time through"
@@ -217,11 +218,14 @@ function MetricCard({
   value,
   change,
   inverse,
+  /** A second reading of the same figure — for rejections, the rate. */
+  context,
 }: {
   label: string;
   value: string;
   change: number | null;
   inverse?: boolean;
+  context?: string;
 }) {
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-4">
@@ -234,6 +238,9 @@ function MetricCard({
         </span>
         <Change change={change} inverse={inverse} />
       </p>
+      {context ? (
+        <p className="mt-1 text-[11px] text-[var(--text-secondary)]">{context}</p>
+      ) : null}
     </div>
   );
 }

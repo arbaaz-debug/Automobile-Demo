@@ -51,7 +51,17 @@ export interface ProcessDef {
   capacityFactor: number;
   /** Nominal cycle time per vehicle-set, in seconds. */
   cycleTimeSec: number;
-  /** Typical first-time-through rate for the process, 0..1. */
+  /**
+   * Typical first-time-through rate for the process, 0..1.
+   *
+   * These are *rejections*, not rework. A vehicle that needs a panel reflowed
+   * or a bolt re-torqued is not counted here; only what the process fails to
+   * pass on is. They are also deliberately set as a set rather than one at a
+   * time: eight sequential processes multiply, so per-process rates that each
+   * look plausible in isolation can compound into a chain that rejects a third
+   * of its output. The chain's rolled yield is what has to be believable, and
+   * it is asserted in the tests.
+   */
   nominalFtt: number;
   /** Typical OEE for the process, 0..1. */
   nominalOee: number;
@@ -86,7 +96,7 @@ export const PROCESSES: ProcessDef[] = [
     // the least elastic asset in the plant.
     capacityFactor: 1.04,
     cycleTimeSec: 6.4,
-    nominalFtt: 0.978,
+    nominalFtt: 0.9955,
     nominalOee: 0.655,
     instrumented: true,
   },
@@ -108,7 +118,7 @@ export const PROCESSES: ProcessDef[] = [
     ],
     capacityFactor: 1.24,
     cycleTimeSec: 52,
-    nominalFtt: 0.962,
+    nominalFtt: 0.9925,
     nominalOee: 0.72,
     instrumented: false,
   },
@@ -130,7 +140,7 @@ export const PROCESSES: ProcessDef[] = [
     ],
     capacityFactor: 1.18,
     cycleTimeSec: 58,
-    nominalFtt: 0.931,
+    nominalFtt: 0.9855,
     nominalOee: 0.688,
     instrumented: false,
   },
@@ -151,7 +161,7 @@ export const PROCESSES: ProcessDef[] = [
     ],
     capacityFactor: 1.33,
     cycleTimeSec: 47,
-    nominalFtt: 0.974,
+    nominalFtt: 0.995,
     nominalOee: 0.741,
     instrumented: false,
   },
@@ -173,7 +183,7 @@ export const PROCESSES: ProcessDef[] = [
     ],
     capacityFactor: 1.29,
     cycleTimeSec: 51,
-    nominalFtt: 0.968,
+    nominalFtt: 0.9935,
     nominalOee: 0.727,
     instrumented: false,
   },
@@ -193,7 +203,7 @@ export const PROCESSES: ProcessDef[] = [
     ],
     capacityFactor: 1.21,
     cycleTimeSec: 55,
-    nominalFtt: 0.985,
+    nominalFtt: 0.997,
     nominalOee: 0.756,
     instrumented: false,
   },
@@ -214,7 +224,7 @@ export const PROCESSES: ProcessDef[] = [
     ],
     capacityFactor: 1.17,
     cycleTimeSec: 61,
-    nominalFtt: 0.947,
+    nominalFtt: 0.9895,
     nominalOee: 0.712,
     instrumented: false,
   },
@@ -236,7 +246,7 @@ export const PROCESSES: ProcessDef[] = [
     ],
     capacityFactor: 1.26,
     cycleTimeSec: 49,
-    nominalFtt: 0.958,
+    nominalFtt: 0.9915,
     nominalOee: 0.734,
     instrumented: false,
   },

@@ -75,6 +75,9 @@ const METRICS: MetricDef[] = [
     delta: (f) => f.deltas.rejected,
     inverse: true,
     subtitle: "Vehicles rejected at any process",
+    // The count alone does not say whether it is a lot. The rate is rejections
+    // against vehicles built, across the whole chain — not any one process.
+    context: (d) => `${fmtPct(d.totals.rejectRate, 1)} rejection rate`,
   },
   {
     id: "rty",
@@ -316,6 +319,12 @@ function MetricAccordion({
         <span className="mt-3 text-[26px] font-semibold leading-none tracking-tight text-[var(--text-primary)]">
           {metric.format(value)}
         </span>
+
+        {metric.context ? (
+          <span className="mt-1.5 text-[11px] text-[var(--text-secondary)]">
+            {metric.context(data)}
+          </span>
+        ) : null}
 
         <span className="mt-2 flex items-center gap-2 text-[11px]">
           {groupDelta === null ? (

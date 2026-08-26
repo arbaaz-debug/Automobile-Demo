@@ -80,11 +80,19 @@ export function FactoryTable({
                 <td className="tabular px-3 py-2.5 text-right text-[var(--text-secondary)]">
                   {fmtInt(f.produced)}
                 </td>
-                <td
-                  className="tabular px-3 py-2.5 text-right font-medium"
-                  style={{ color: STATUS_TEXT.critical }}
-                >
-                  {fmtInt(f.rejected)}
+                <td className="px-3 py-2.5 text-right">
+                  {/* The count with the rate under it: 36 rejections reads very
+                      differently at a plant building 114 a day and one building
+                      20. */}
+                  <span
+                    className="tabular block font-medium"
+                    style={{ color: STATUS_TEXT.critical }}
+                  >
+                    {fmtInt(f.rejected)}
+                  </span>
+                  <span className="tabular block text-[10px] text-[var(--text-muted)]">
+                    {fmtPct(f.rejectRate, 1)}
+                  </span>
                 </td>
                 <td className="tabular px-3 py-2.5 text-right text-[var(--text-secondary)]">
                   {fmtPct(f.rty, 1)}

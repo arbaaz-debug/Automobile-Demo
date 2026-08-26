@@ -23,6 +23,14 @@ export interface MetricDef {
   /** True when a rise is bad — rejections. */
   inverse?: boolean;
   subtitle: string;
+  /**
+   * A second reading of the same metric, shown under the headline figure.
+   *
+   * A count on its own does not say whether it is a lot: 3,586 rejections
+   * means one thing against 10,000 vehicles and another against 40,000. Where
+   * a rate makes the count legible, it belongs next to it.
+   */
+  context?: (data: OverviewData) => string;
 }
 
 const BUCKET_WORD: Record<Granularity, string> = {
@@ -190,6 +198,19 @@ function summaryText(metric: MetricDef, ranked: FactoryRow[], data: OverviewData
     }
   }
 
+  // For rejections the count is only half the reading: a plant can lead the
+  // table simply by building the most. The rate is what ranks them fairly.
+  let rateNote = "";
+  if (metric.id === "rejected") {
+    const byRate = [...ranked].sort((a, b) => b.rejectRate - a.rejectRate);
+    const worst = byRate[0];
+    const best = byRate[byRate.length - 1];
+    rateNote =
+      ` By rate the group runs at ${fmtPct(data.totals.rejectRate, 1)}, from ` +
+      `${best.name} at ${fmtPct(best.rejectRate, 1)} to ${worst.name} at ` +
+      `${fmtPct(worst.rejectRate, 1)}.`;
+  }
+
   return (
     `${top.name} leads at ${metric.format(metric.read(top))} and ${bottom.name} trails at ` +
     `${metric.format(metric.read(bottom))}.` +
@@ -198,6 +219,7 @@ function summaryText(metric: MetricDef, ranked: FactoryRow[], data: OverviewData
         `${moverChange >= 0 ? "up" : "down"} ${Math.abs(moverChange * 100).toFixed(1)}% — ` +
         `${moverGood ? "worth understanding and copying" : "worth checking first"}.`
       : "") +
+    rateNote +
     attainment
   );
 }

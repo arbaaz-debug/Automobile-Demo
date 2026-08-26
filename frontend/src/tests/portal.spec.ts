@@ -1062,6 +1062,48 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
 
+  test("rejection rates stay in band, and the rate is shown with the count", async ({
+    page,
+  }) => {
+    // The group must average under 8%. A single factory may run hotter — that
+    // is what an incident looks like — but never past 14%, which is the bound
+    // the chain solver enforces.
+    for (const range of ["today", "7d", "30d", "90d"]) {
+      await openOverview(page, `?range=${range}`);
+
+      // The count carries its rate.
+      const card = page
+        .locator("button[aria-expanded]")
+        .filter({ hasText: "Total rejections" })
+        .first();
+      const groupText = await card.innerText();
+      const group = Number(groupText.match(/([\d.]+)%\s*rejection rate/)?.[1]);
+      expect(Number.isFinite(group), `no rate on the card for ${range}: ${groupText}`).toBe(
+        true,
+      );
+      expect(group, `group rejection rate at ${range}`).toBeLessThan(8);
+
+      // Every factory's own rate, from the factory table.
+      const rates = await page
+        .locator("table", { hasText: "Share of India" })
+        .first()
+        .locator("tbody tr")
+        .evaluateAll((rows) =>
+          rows.map((r) => {
+            const cells = [...r.querySelectorAll("td")];
+            return Number(cells[2]?.innerText.match(/([\d.]+)%/)?.[1] ?? NaN);
+          }),
+        );
+      expect(rates).toHaveLength(5);
+      for (const r of rates) {
+        expect(Number.isFinite(r)).toBe(true);
+        expect(r, `a factory exceeded the 14% bound at ${range}: ${rates}`).toBeLessThanOrEqual(
+          14,
+        );
+      }
+    }
+  });
+
   test("the overview drops the events list — attention lives on the landing page", async ({
     page,
   }) => {

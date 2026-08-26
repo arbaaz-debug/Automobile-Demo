@@ -135,11 +135,11 @@ const STATION_PROFILE: Record<
  * oldest press shop in the group and carries it in every metric.
  */
 const PLANT_CHARACTER: Record<string, { perf: number; reject: number; downtime: number }> = {
-  nashik: { perf: 0.86, reject: 0.0185, downtime: 1.0 },
-  chakan: { perf: 0.9, reject: 0.0138, downtime: 0.82 },
-  kandivali: { perf: 0.79, reject: 0.0246, downtime: 1.24 },
-  haridwar: { perf: 0.91, reject: 0.0129, downtime: 0.78 },
-  zaheerabad: { perf: 0.83, reject: 0.0203, downtime: 1.08 },
+  nashik: { perf: 0.86, reject: 0.0040, downtime: 1.0 },
+  chakan: { perf: 0.9, reject: 0.0030, downtime: 0.82 },
+  kandivali: { perf: 0.79, reject: 0.0054, downtime: 1.24 },
+  haridwar: { perf: 0.91, reject: 0.0028, downtime: 0.78 },
+  zaheerabad: { perf: 0.83, reject: 0.0044, downtime: 1.08 },
 };
 
 /** Shift character — night shift is consistently the weakest, as in most plants. */
@@ -371,7 +371,7 @@ function lineBatches(lineId: string, dayKey: string, shifts: ShiftId[]): Batch[]
       // An incident's `ftt` multiplier scales the *yield loss*, so 0.42 is
       // "reject rate more than doubles", not "yield drops to 42%".
       const rejectRate = clamp(
-        brng.clampedNormal(character.reject * shiftChar.reject, 0.006, 0.003, 0.075) /
+        brng.clampedNormal(character.reject * shiftChar.reject, 0.0014, 0.0006, 0.02) /
           Math.max(0.05, incident.ftt),
         0.003,
         0.28,
