@@ -25,15 +25,120 @@ import { routes } from "@/lib/routes";
  * width, so the factory name carries the link rather than a separate button
  * column, and severity rides on a glyph and a figure rather than on a wide
  * meter — colour alone never carries it either way.
+ *
+ * `layout="stack"` is for the landing page's attention rail, which is narrower
+ * than the table's four columns can honestly be read at. Rather than let the
+ * table scroll sideways — which hides the column that says how much output is
+ * at stake — each factory becomes a small block with the same facts in reading
+ * order.
  */
 export function RoadblockPanel({
   factories,
   search,
+  layout = "table",
 }: {
   factories: FactoryRow[];
   search?: string | null;
+  layout?: "table" | "stack";
 }) {
   const ranked = [...factories].sort((a, b) => a.worstOee - b.worstOee);
+
+  if (layout === "stack") {
+    return (
+      <ul className="divide-y divide-[var(--border)]/60">
+        {ranked.map((f) => {
+          const band = bandForOee(f.worstOee);
+          const severe = f.worstOee < 0.62;
+
+          return (
+            <li key={f.plantId} className="px-4 py-3 transition hover:bg-[var(--surface-3)]/40">
+              <div className="flex items-baseline justify-between gap-3">
+                <Link
+                  href={routes.plant(f.plantId, search)}
+                  className="flex min-w-0 items-center gap-1.5 underline-offset-2 hover:underline"
+                >
+                  <span
+                    aria-hidden
+                    className="size-2 shrink-0 rounded-[2px]"
+                    style={{ backgroundColor: f.color }}
+                  />
+                  <span className="truncate text-[13px] font-semibold text-[var(--text-primary)]">
+                    {f.name}
+                  </span>
+                </Link>
+                <span className="shrink-0 text-right">
+                  <span className="tabular text-[13px] font-semibold text-[var(--text-primary)]">
+                    {fmtInt(f.avgPerDay)}
+                  </span>
+                  <span className="ml-1 text-[10px] text-[var(--text-muted)]">veh / day</span>
+                </span>
+              </div>
+
+              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                <Link href={routes.process(f.bottleneckProcessId, search)} className="group block">
+                  <span className="block text-[9px] uppercase tracking-[0.1em] text-[var(--text-muted)]">
+                    Constraint
+                  </span>
+                  <span className="mt-0.5 flex items-baseline gap-1">
+                    <AlertTriangle
+                      size={11}
+                      aria-hidden
+                      className="shrink-0 translate-y-0.5"
+                      style={{ color: STATUS.warning }}
+                    />
+                    <span className="truncate text-[11px] font-medium text-[var(--text-primary)] group-hover:underline">
+                      {f.bottleneckProcessName}
+                    </span>
+                    <span
+                      className="tabular shrink-0 text-[11px] font-semibold"
+                      style={{ color: STATUS_TEXT.warning }}
+                    >
+                      {fmtPct(f.bottleneckUtilisation, 0)}
+                    </span>
+                  </span>
+                  <span className="mt-1 block">
+                    <Meter
+                      value={Math.min(1, f.bottleneckUtilisation)}
+                      color={STATUS.warning}
+                      label={`${f.name} constraint utilisation`}
+                      height={4}
+                    />
+                  </span>
+                </Link>
+
+                <Link href={routes.process(f.worstProcessId, search)} className="group block">
+                  <span className="block text-[9px] uppercase tracking-[0.1em] text-[var(--text-muted)]">
+                    Weakest process
+                  </span>
+                  <span className="mt-0.5 flex items-baseline gap-1">
+                    <span
+                      aria-hidden
+                      className="shrink-0 text-[10px]"
+                      style={{ color: severe ? STATUS_TEXT.critical : STATUS_TEXT.warning }}
+                    >
+                      {severe ? "▲" : "◐"}
+                    </span>
+                    <span className="truncate text-[11px] font-medium text-[var(--text-primary)] group-hover:underline">
+                      {f.worstProcessName}
+                    </span>
+                    <span
+                      className="tabular shrink-0 text-[11px] font-semibold"
+                      style={{ color: BAND_COLOR[band] }}
+                    >
+                      {fmtPct(f.worstOee, 0)}
+                    </span>
+                  </span>
+                  <span className="mt-0.5 block text-[9px] text-[var(--text-muted)]">
+                    {severe ? "Critical — losing real output" : "OEE below target"}
+                  </span>
+                </Link>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
 
   return (
     <div className="overflow-x-auto">

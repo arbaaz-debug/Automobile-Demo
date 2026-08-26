@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
-import { ArrowRight, Car } from "lucide-react";
+import { ArrowRight, Car, SignpostBig } from "lucide-react";
 import { PLANTS } from "@/domain/stamping/catalog";
 import { useFilterState, useOverview } from "@/hooks/useOverview";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageSkeleton } from "@/components/layout/PageSkeleton";
-import { IndiaFactoryMap, MapLegend } from "@/components/landing/IndiaFactoryMap";
+import { FactoryMap, MapLegend } from "@/components/landing/FactoryMap";
+import { RoadblockPanel } from "@/components/overview/RoadblockPanel";
+import { Card, CardHeader } from "@/components/ui/Card";
 import { fmtInt, fmtPct } from "@/lib/format";
 import { STATUS_TEXT } from "@/lib/theme";
 import { routes } from "@/lib/routes";
@@ -65,9 +67,9 @@ export function LandingView() {
         <PageSkeleton />
       ) : (
         <>
-          {/* --- headline row: title left, total vehicles top right --------- */}
+          {/* --- title, and the way through to the detail ------------------- */}
 
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <div className="min-w-0">
               <h1 className="text-[20px] font-semibold tracking-tight text-[var(--text-primary)]">
                 Mahindra manufacturing · India
@@ -77,21 +79,29 @@ export function LandingView() {
               </p>
             </div>
 
+            <Link
+              href={routes.overview(search)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--series-1)] bg-[var(--series-1)] px-3 py-2 text-[12px] font-semibold text-white transition hover:brightness-110"
+            >
+              View details
+              <ArrowRight size={14} aria-hidden />
+            </Link>
+          </div>
+
+          {/* --- metrics: production on the left, the rest on the same line --
+              One row so the group's output and the four measures that qualify
+              it are read together, rather than the eye travelling down a column
+              to find out whether the headline is good news. */}
+
+          <div className="mb-3 flex flex-wrap items-stretch justify-between gap-3">
             <HeadlineMetric
               label="Total vehicles produced"
               value={fmtInt(data.totals.produced)}
               unit="vehicles"
               change={groupChange(data, "produced")}
             />
-          </div>
 
-          {/* --- metrics left, map right ------------------------------------ */}
-
-          {/* Columns are sized rather than stretched: India is near-square, so a
-              map card that spans the full width strands the drawing in the
-              middle of its own empty space. */}
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,280px)_minmax(0,780px)] lg:justify-center">
-            <div className="flex flex-col gap-3">
+            <div className="grid min-w-0 flex-1 grid-cols-2 gap-3 sm:grid-cols-4">
               <MetricCard
                 label="Avg production / day"
                 value={fmtInt(data.totals.avgPerDay)}
@@ -113,36 +123,46 @@ export function LandingView() {
                 value={fmtPct(data.totals.oee, 1)}
                 change={groupChange(data, "oee")}
               />
-
-              <Link
-                href={routes.overview(search)}
-                className="mt-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--series-1)] bg-[var(--series-1)] px-3 py-2.5 text-[12px] font-semibold text-white transition hover:brightness-110"
-              >
-                View details
-                <ArrowRight size={14} aria-hidden />
-              </Link>
             </div>
+          </div>
 
-            <section className="flex flex-col rounded-lg border border-[var(--border)] bg-[var(--surface-1)]">
+          {/* --- map, with what needs attention beside it -------------------- */}
+
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
+            <section
+              aria-labelledby="map-panel-title"
+              className="flex flex-col rounded-lg border border-[var(--border)] bg-[var(--surface-1)]"
+            >
               <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-2.5">
-                <h2 className="text-[13px] font-semibold tracking-tight text-[var(--text-primary)]">
+                <h2
+                  id="map-panel-title"
+                  className="text-[13px] font-semibold tracking-tight text-[var(--text-primary)]"
+                >
                   Factory locations
                 </h2>
                 <MapLegend />
               </header>
-              {/* India is very nearly square in projection, so the drawing is
-                  capped and centred rather than stretched across a wide card —
-                  a landscape container would leave the map marooned in the
-                  middle of its own whitespace. */}
-              <div className="flex flex-1 justify-center p-3">
-                <IndiaFactoryMap
+              <div className="relative min-h-[520px] flex-1 overflow-hidden rounded-b-lg">
+                <FactoryMap
                   factories={data.factories}
                   search={search}
-                  className="relative aspect-[13/14] w-full max-w-[720px]"
+                  className="absolute inset-0"
                 />
               </div>
             </section>
+
+            <Card className="flex flex-col overflow-hidden">
+              <CardHeader
+                title="Needs attention"
+                subtitle="Where each factory is blocked, worst first"
+                icon={<SignpostBig size={14} />}
+              />
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <RoadblockPanel factories={data.factories} search={search} layout="stack" />
+              </div>
+            </Card>
           </div>
+
         </>
       )}
     </AppShell>

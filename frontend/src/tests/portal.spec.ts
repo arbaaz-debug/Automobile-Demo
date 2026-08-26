@@ -716,18 +716,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     // in the model — if any surface re-derives it, they will disagree.
     const errors = watchConsole(page);
 
-    // 1. The overview lists it, with a measured cost.
-    await openOverview(page, "?range=30d");
-    const overviewRow = page
-      .locator("li button[aria-expanded]")
-      .filter({ hasText: "Draw press main drive failure" })
-      .first();
-    await expect(overviewRow).toBeVisible();
-    await expect(overviewRow).toContainText("Kandivali");
-    const cost = (await overviewRow.innerText()).match(/−([\d,]+)/)?.[1];
-    expect(cost, "overview should quantify the loss").toBeTruthy();
-
-    // 2. The factory it happened at shows the same event.
+    // 1. The factory it happened at lists it, with a measured cost.
     await page.goto("/factory/kandivali/?range=30d");
     await page.waitForTimeout(3000);
     const factoryRow = page
@@ -735,7 +724,20 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
       .filter({ hasText: "Draw press main drive failure" })
       .first();
     await expect(factoryRow).toBeVisible();
-    expect(await factoryRow.innerText()).toContain(cost!);
+    const cost = (await factoryRow.innerText()).match(/−([\d,]+)/)?.[1];
+    expect(cost, "the factory should quantify the loss").toBeTruthy();
+
+    // 2. The overview names it as that factory's roadblock, without an event
+    //    list of its own to read it from.
+    await openOverview(page, "?range=30d");
+    const roadblock = page
+      .locator("li")
+      .filter({ hasText: "Kandivali" })
+      .filter({ hasText: /Press shop/ })
+      .first();
+    await expect(roadblock).toBeVisible();
+    await page.goto("/factory/kandivali/?range=30d");
+    await page.waitForTimeout(3000);
 
     // And the damage is visible in that factory's own numbers, not just the
     // event list: the press shop is its weakest process.
@@ -794,12 +796,14 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     await page.waitForTimeout(3000);
 
     // The map is inline SVG — no tile server — with a marker per factory.
-    const map = page.getByRole("img", { name: /Map of India/ });
+    const map = page.getByRole("img", { name: /Map showing 5 factories/ });
     await expect(map).toBeVisible();
-    await expect(page.locator("a[href*='/factory/']")).toHaveCount(5);
+    // Scoped to the map: the attention rail links the same factories again.
+    const mapPanel = page.getByRole("region", { name: "Factory locations" });
+    await expect(mapPanel.locator("a[href*='/factory/']")).toHaveCount(5);
     for (const name of ["Nashik", "Chakan", "Kandivali", "Haridwar", "Zaheerabad"]) {
       await expect(
-        page.locator("a[href*='/factory/'] span").filter({ hasText: new RegExp(`^${name}$`) }),
+        mapPanel.locator("a[href*='/factory/'] span").filter({ hasText: new RegExp(`^${name}$`) }),
       ).toBeVisible();
     }
 
@@ -821,7 +825,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     // Labels must not collide — three of these plants are within 150 km.
     const boxes = await Promise.all(
       ["Nashik", "Chakan", "Kandivali", "Haridwar", "Zaheerabad"].map((n) =>
-        page
+        mapPanel
           .locator("a[href*='/factory/'] span")
           .filter({ hasText: new RegExp(`^${n}$`) })
           .first()
@@ -838,6 +842,40 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
       }
     }
 
+    // Production reads on the left, the four measures that qualify it on the
+    // same line to its right — not stacked down a column.
+    const headline = page.locator("p", { hasText: /^Total vehicles produced$/ }).first();
+    const lastMetric = page.locator("p", { hasText: /^Group OEE$/ }).first();
+    const hb = (await headline.boundingBox())!;
+    const lb = (await lastMetric.boundingBox())!;
+    expect(Math.abs(hb.y - lb.y), "metrics share a line").toBeLessThan(40);
+    expect(lb.x, "supporting metrics sit right of production").toBeGreaterThan(hb.x);
+
+    // What needs attention sits beside the map, not below the fold.
+    await expect(page.getByRole("heading", { name: "Needs attention" })).toBeVisible();
+    const rail = (await page
+      .getByRole("heading", { name: "Needs attention" })
+      .boundingBox())!;
+    const mapBox = (await map.boundingBox())!;
+    expect(rail.x, "attention rail is right of the map").toBeGreaterThan(mapBox.x);
+
+    // The map is a real map: it zooms past India and back.
+    const viewBox = () => map.getAttribute("viewBox");
+    const start = (await viewBox())!.split(" ").map(Number);
+    for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Zoom out" }).click();
+    await page.waitForTimeout(500);
+    const out = (await viewBox())!.split(" ").map(Number);
+    expect(out[2], "zooming out reaches beyond India").toBeGreaterThan(start[2] * 3);
+
+    await page.getByRole("button", { name: "Zoom in" }).click();
+    await page.waitForTimeout(400);
+    const back = (await viewBox())!.split(" ").map(Number);
+    expect(back[2]).toBeLessThan(out[2]);
+
+    await page.getByRole("button", { name: "Reset view" }).click();
+    await page.waitForTimeout(400);
+    expect((await viewBox())!.split(" ").map(Number)[2]).toBeCloseTo(start[2], 1);
+
     // View details carries the window through to the overview.
     await page.getByRole("link", { name: /View details/ }).click();
     await page.waitForURL("**/overview/**");
@@ -847,6 +885,15 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     ).toBeVisible();
 
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
+  });
+
+  test("the overview drops the events list — attention lives on the landing page", async ({
+    page,
+  }) => {
+    await openOverview(page, "?range=30d");
+    await expect(page.getByText("Events in this window")).toHaveCount(0);
+    // The roadblocks it replaced are still there, beside the recommendations.
+    await expect(page.getByRole("heading", { name: /Roadblocks by factory/ })).toBeVisible();
   });
 
   test("portal is responsive at tablet width", async ({ page }) => {
