@@ -349,7 +349,15 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
     produced,
     good,
     rejected,
-    rty: produced > 0 ? good / produced : 0,
+    // Rolled yield, not the last process's yield.
+    //
+    // `good / produced` reads off the terminal process alone, which answers
+    // "what share of vehicles passed final test" — a number in the high 90s
+    // that says nothing about the seven processes before it, and one that
+    // contradicts the rejection rate printed beside it. The chain's rolled
+    // yield is already computed per day; the group figure is those days
+    // weighted by what each built.
+    rty: weightedMean(points, (p) => p.rty, (p) => p.produced),
     oee: weightedMean(points, (p) => p.oee, (p) => p.produced),
     rejectRate: produced > 0 ? rejected / produced : 0,
     days,
@@ -400,7 +408,8 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
       good: g,
       rejected: r,
       rejectRate: p > 0 ? r / p : 0,
-      rty: p > 0 ? g / p : 0,
+      // Rolled across the chain, matching the group figure — see `totals`.
+      rty: weightedMean(series.points, (x) => x.rty, (x) => x.produced),
       oee,
       avgPerDay: p / days,
       share: produced > 0 ? p / produced : 0,
@@ -778,7 +787,7 @@ function factoryTotalsFor(
     out.set(plantId, {
       produced,
       rejected: sum(points, (p) => p.rejected),
-      rty: produced > 0 ? sum(points, (p) => p.good) / produced : 0,
+      rty: weightedMean(points, (p) => p.rty, (p) => p.produced),
       oee: weightedMean(points, (p) => p.oee, (p) => p.produced),
     });
   }

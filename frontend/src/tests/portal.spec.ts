@@ -264,8 +264,8 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     const monthTotal = await readTileValue(page, "Vehicles produced");
     expect(monthTotal).toBeGreaterThan(dayTotal);
 
-    // Trend switches to daily buckets.
-    await expect(page.getByText(/change against the previous 30-day window/)).toBeVisible();
+    // Trend switches to daily buckets, and the summary reads the new window.
+    await expect(page.getByText(/previous 30-day window/).first()).toBeVisible();
 
     expect(page.url()).toContain("range=30d");
 
@@ -1005,14 +1005,18 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     // programme is beatable, and the summary has to say who beat it.
     for (const range of ["today", "7d", "30d", "90d"]) {
       await openOverview(page, `?range=${range}`);
+      // The summary is a list of individually-toned bullets, not a paragraph.
       const summary = page
-        .locator("p")
+        .locator("li")
         .filter({ hasText: /beat their programme|met its programme/ })
         .first();
       await expect(summary).toContainText("2 of 5 beat their programme", {
         timeout: 15_000,
       });
-      await expect(summary).toContainText("of target");
+      // The plant furthest behind is its own bullet, toned separately.
+      await expect(
+        page.locator("li").filter({ hasText: /furthest behind/ }).first(),
+      ).toContainText("of target");
     }
 
     // And it is visible in the chart: two bars clear their dashed rule.
@@ -1101,6 +1105,95 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
           14,
         );
       }
+    }
+  });
+
+  test("metric cards are equal height and summarise in coloured bullets", async ({ page }) => {
+    await openOverview(page, "?range=7d");
+    await page.waitForTimeout(1500);
+
+    // Five cards on one row, all the same height and top, so a reader
+    // comparing across the row does not have to re-find the baseline.
+    const cards = await page.evaluate(() => {
+      const out: { h: number; y: number; chartY: number }[] = [];
+      for (const btn of document.querySelectorAll("button[aria-expanded]")) {
+        const label = btn.textContent ?? "";
+        if (!/Vehicles produced|Avg production \/|Total rejections|First time through|Group OEE/i.test(label))
+          continue;
+        const card = btn.parentElement!;
+        const r = card.getBoundingClientRect();
+        const svg = card.querySelector("svg.recharts-surface");
+        out.push({
+          h: Math.round(r.height),
+          y: Math.round(r.y),
+          chartY: svg ? Math.round(svg.getBoundingClientRect().y) : 0,
+        });
+      }
+      return out;
+    });
+    expect(cards).toHaveLength(5);
+    expect(new Set(cards.map((c) => c.h)).size, `heights: ${cards.map((c) => c.h)}`).toBe(1);
+    expect(new Set(cards.map((c) => c.y)).size).toBe(1);
+    // And the plot areas start level, so the charts compare directly.
+    expect(new Set(cards.map((c) => c.chartY)).size, `chart tops: ${cards.map((c) => c.chartY)}`).toBe(
+      1,
+    );
+
+    // Each bullet is coloured by what it says, and carries a shape as well as
+    // a colour so the tone survives without colour vision.
+    const bullets = page
+      .locator("li")
+      .filter({ hasText: /Group (up|down)|is best at|is worst at|moved most/ });
+    expect(await bullets.count()).toBeGreaterThanOrEqual(15);
+
+    const toned = await bullets.evaluateAll((ls) =>
+      ls.map((l) => ({
+        glyph: (l.textContent ?? "").trim()[0],
+        color: getComputedStyle(l.querySelector("span:last-child")!).color,
+        text: l.textContent ?? "",
+      })),
+    );
+    // Every bullet is one of the three tones, and glyph and colour agree.
+    const GLYPHS: Record<string, string> = {
+      "\u25B2": "rgb(47, 191, 47)",
+      "\u25C6": "rgb(250, 178, 25)",
+      "\u25BC": "rgb(239, 133, 133)",
+    };
+    for (const t of toned) {
+      expect(Object.keys(GLYPHS), `unexpected glyph in "${t.text}"`).toContain(t.glyph);
+      expect(t.color, `glyph and colour disagree in "${t.text}"`).toBe(GLYPHS[t.glyph]);
+    }
+    // All three tones are actually in use, not just one.
+    expect(new Set(toned.map((t) => t.glyph)).size).toBe(3);
+
+    // "Best" always reads green and "worst" always reads red, whichever end of
+    // the metric that is — a plant is never called a leader for rejecting most.
+    for (const t of toned) {
+      if (/is best at/.test(t.text)) expect(t.glyph).toBe("\u25B2");
+      if (/is worst at/.test(t.text)) expect(t.glyph).toBe("\u25BC");
+    }
+  });
+
+  test("first time through is the rolled yield, and agrees with rejections", async ({
+    page,
+  }) => {
+    // The two were computed differently and contradicted each other: 99.2%
+    // first-time-through beside a 6.4% rejection rate. FTT is the product
+    // across all eight processes, so 1 - FTT has to land near the reject rate.
+    for (const range of ["today", "7d", "30d"]) {
+      await openOverview(page, `?range=${range}`);
+      const read = async (label: string) =>
+        (await page.locator("button[aria-expanded]").filter({ hasText: label }).first().innerText());
+
+      const ftt = Number((await read("First time through")).match(/([\d.]+)%/)?.[1]);
+      const rate = Number((await read("Total rejections")).match(/([\d.]+)%\s*rejection rate/)?.[1]);
+
+      expect(Number.isFinite(ftt) && Number.isFinite(rate)).toBe(true);
+      expect(ftt, `FTT at ${range} should be a rolled yield, not one process`).toBeLessThan(98);
+      expect(
+        Math.abs(100 - ftt - rate),
+        `FTT ${ftt}% and reject rate ${rate}% disagree at ${range}`,
+      ).toBeLessThan(2.5);
     }
   });
 

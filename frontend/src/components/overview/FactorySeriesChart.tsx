@@ -147,7 +147,16 @@ export function FactorySeriesChart({
             {title}
           </h3>
           {subtitle ? (
-            <p className={cn("mt-0.5 text-[var(--text-muted)]", compact ? "text-[9px] leading-snug" : "truncate text-[11px]")}>{subtitle}</p>
+            <p
+              className={cn(
+                "mt-0.5 text-[var(--text-muted)]",
+                compact
+                  ? "line-clamp-2 min-h-[25px] text-[9px] leading-snug"
+                  : "truncate text-[11px]",
+              )}
+            >
+              {subtitle}
+            </p>
           ) : null}
         </div>
         <button

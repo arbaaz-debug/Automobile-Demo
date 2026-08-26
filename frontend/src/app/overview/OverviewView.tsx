@@ -170,10 +170,13 @@ export function OverviewView() {
           {/* --- headline metrics, each its own accordion --------------------
               Every card carries its own graph and summary in place, at the
               card's width, open on arrival and closable one by one.
-              `items-start` keeps a closed card at its natural height rather
-              than stretching it to match an open neighbour. */}
+              Stretched rather than natural-height: five cards of different
+              heights read as five unrelated panels, and a reader comparing
+              them across the row has to re-find the baseline each time. The
+              headline row, the graph and the summary each line up across all
+              five. */}
 
-          <div className="mb-6 grid grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="mb-6 grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {METRICS.map((m) => (
               <MetricAccordion
                 key={m.id}
@@ -291,7 +294,7 @@ function MetricAccordion({
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-col overflow-hidden rounded-lg border bg-[var(--surface-1)] transition",
+        "flex h-full min-w-0 flex-col overflow-hidden rounded-lg border bg-[var(--surface-1)] transition",
         open ? "border-[var(--series-1)]" : "border-[var(--border)]",
       )}
     >
@@ -320,11 +323,11 @@ function MetricAccordion({
           {metric.format(value)}
         </span>
 
-        {metric.context ? (
-          <span className="mt-1.5 text-[11px] text-[var(--text-secondary)]">
-            {metric.context(data)}
-          </span>
-        ) : null}
+        {/* Always rendered, empty where a metric has no second reading, so the
+            change row below lines up across all five cards. */}
+        <span className="mt-1.5 min-h-[16px] text-[11px] text-[var(--text-secondary)]">
+          {metric.context ? metric.context(data) : "\u00A0"}
+        </span>
 
         <span className="mt-2 flex items-center gap-2 text-[11px]">
           {groupDelta === null ? (
@@ -345,8 +348,11 @@ function MetricAccordion({
       </button>
 
       {open ? (
-        <div id={`${id}-panel`} className="min-w-0 border-t border-[var(--border)]">
-          <MetricSplitSection data={data} metric={metric} compact />
+        <div
+          id={`${id}-panel`}
+          className="flex min-w-0 flex-1 flex-col border-t border-[var(--border)]"
+        >
+          <MetricSplitSection data={data} metric={metric} groupDelta={groupDelta} compact />
         </div>
       ) : null}
     </div>

@@ -10,6 +10,7 @@ import {
   YAxis,
   Cell,
 } from "recharts";
+import { cn } from "@/lib/format";
 import type { FactoryRow } from "@/services/data/overview";
 import { AXIS_PROPS, COLORS, GRID_PROPS, STATUS_TEXT } from "@/lib/theme";
 import { fmtInt, fmtPct } from "@/lib/format";
@@ -32,10 +33,14 @@ export function ProductionSplitChart({
   height = 300,
   /** Rendered inside a metric card, at roughly a fifth of the row. */
   compact = false,
+  title,
+  subtitle,
 }: {
   factories: FactoryRow[];
   height?: number;
   compact?: boolean;
+  title?: string;
+  subtitle?: string;
 }) {
   const data = factories.map((f) => ({
     plantId: f.plantId,
@@ -49,7 +54,65 @@ export function ProductionSplitChart({
   }));
 
   return (
-    <div style={{ height }}>
+    <div className="flex min-w-0 flex-col">
+      {/* Header and colour key deliberately mirror FactorySeriesChart's, down
+          to the class names. Identical content at identical sizes wraps to the
+          same number of rows at every width, which is what keeps the plot areas
+          across the metric row starting at the same height — a hardcoded header
+          height would only hold at one breakpoint. */}
+      {title ? (
+        <header className={cn(compact ? "px-3 pb-1 pt-2" : "px-4 pb-2 pt-3")}>
+          <h3
+            className={cn(
+              "truncate font-semibold tracking-tight text-[var(--text-primary)]",
+              compact ? "text-[11px]" : "text-[13px]",
+            )}
+          >
+            {title}
+          </h3>
+          {subtitle ? (
+            <p
+              className={cn(
+                "mt-0.5 text-[var(--text-muted)]",
+                compact
+                  ? "line-clamp-2 min-h-[25px] text-[9px] leading-snug"
+                  : "truncate text-[11px]",
+              )}
+            >
+              {subtitle}
+            </p>
+          ) : null}
+        </header>
+      ) : null}
+
+      {title ? (
+        <ul
+          className={cn(
+            "flex flex-wrap items-center gap-x-2 gap-y-1 pb-2",
+            compact ? "px-3" : "px-4",
+          )}
+        >
+          {factories.map((f) => (
+            <li key={f.plantId}>
+              <span
+                className={cn(
+                  "flex items-center gap-1.5 rounded border border-[var(--border)] px-1.5 py-0.5 text-[var(--text-secondary)]",
+                  compact ? "text-[9px]" : "text-[11px]",
+                )}
+              >
+                <span
+                  aria-hidden
+                  className="size-2 shrink-0 rounded-[2px]"
+                  style={{ backgroundColor: f.color }}
+                />
+                {f.name}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <div style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart
           data={data}
@@ -131,6 +194,7 @@ export function ProductionSplitChart({
           />
         </BarChart>
       </ResponsiveContainer>
+      </div>
     </div>
   );
 }
