@@ -35,7 +35,8 @@ async function openOverview(page: Page, query = "") {
   await expect(page.getByText("Vehicles produced", { exact: true }).first()).toBeVisible();
 }
 
-/** Expands a metric card — every accordion starts closed. */
+/** Ensures a metric card is expanded. They now start open; this keeps the
+ *  tests honest if a case has closed one first. */
 async function openMetric(page: Page, label: string) {
   const card = page.locator("button[aria-expanded]").filter({ hasText: label }).first();
   if ((await card.getAttribute("aria-expanded")) !== "true") await card.click();
@@ -102,8 +103,9 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     // Data source is disclosed.
     await expect(page.getByText("Simulated data")).toBeVisible();
 
-    // The graphs are behind their accordions, closed by default.
-    await expect(page.locator("svg.recharts-surface")).toHaveCount(0);
+    // Every metric card opens with its graph and its summary already showing.
+    await expect(page.locator("svg.recharts-surface")).toHaveCount(5);
+    await expect(page.getByRole("button", { name: "Hide summary" })).toHaveCount(5);
     await expect(
       page.getByText("Where output is being lost — and what to do about it"),
     ).toBeVisible();
@@ -170,13 +172,15 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
 
-  test("clicking a process opens its process overview", async ({ page }) => {
+  test("clicking a process opens it at a factory, not a group-level page", async ({ page }) => {
     const errors = watchConsole(page);
     await openOverview(page);
 
     const map = page.locator("section", { hasText: "Vehicle manufacturing flow" }).first();
     await map.getByRole("link", { name: /Paint shop/ }).first().click();
-    await page.waitForURL("**/process/paint-shop/");
+    // A process always belongs to a plant and a model — there is no
+    // /process/<id>/ page any more.
+    await page.waitForURL(/\/factory\/[a-z-]+\/[a-z0-9-]+\/paint-shop\//);
 
     await expect(page.getByRole("heading", { name: "Paint shop", level: 1 })).toBeVisible();
     await expect(page.getByText("Operations in sequence")).toBeVisible();
@@ -199,21 +203,19 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
 
   test("press shop process page routes through to station-level detail", async ({ page }) => {
     const errors = watchConsole(page);
-    await page.goto("/process/press-shop/");
+    await page.goto("/factory/nashik/thar/press-shop/");
 
     await expect(page.getByRole("heading", { name: "Press shop", level: 1 })).toBeVisible();
-    await expect(page.getByText(/Bottleneck process/)).toBeVisible();
 
-    // Only the press shop is instrumented, so only it offers the deep link.
-    await page.getByRole("link", { name: /Open station-level detail/ }).click();
-    await page.waitForURL("**/factory/**");
-    await expect(page.getByText("live process view")).toBeVisible();
+    // The press shop is the only instrumented process, and its station detail
+    // is on the page itself rather than behind another hop.
+    await expect(page.getByText(/live process view/).first()).toBeVisible();
 
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
 
   test("uninstrumented processes say so rather than implying telemetry", async ({ page }) => {
-    await page.goto("/process/trim-final/");
+    await page.goto("/factory/nashik/thar/trim-final/");
     await expect(page.getByRole("heading", { name: "Trim & final assembly", level: 1 })).toBeVisible();
     await expect(page.getByText(/Modelled at process level/i).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /Open station-level detail/ })).toHaveCount(0);
@@ -253,11 +255,11 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
 
     const dayTotal = await readTileValue(page, "Vehicles produced");
     await openMetric(page, "Vehicles produced");
-    await expect(page.getByText(/previous 1-day window/)).toBeVisible();
+    await expect(page.getByText(/previous 1-day window/).first()).toBeVisible();
 
     await page.getByRole("button", { name: "30D", exact: true }).click();
     await openMetric(page, "Vehicles produced");
-    await expect(page.getByText(/previous 30-day window/)).toBeVisible();
+    await expect(page.getByText(/previous 30-day window/).first()).toBeVisible();
 
     const monthTotal = await readTileValue(page, "Vehicles produced");
     expect(monthTotal).toBeGreaterThan(dayTotal);
@@ -297,7 +299,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
       .getByRole("link", { name: /Body shop/ })
       .first()
       .click();
-    await page.waitForURL("**/process/body-shop/**");
+    await page.waitForURL(/\/factory\/[a-z-]+\/[a-z0-9-]+\/body-shop\//);
 
     // The window the user was looking at came with them.
     expect(page.url()).toContain("range=7d");
@@ -398,12 +400,12 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     await page.getByRole("button", { name: "Show data table view" }).first().click();
     await expect(page.getByRole("columnheader", { name: "Day" }).first()).toBeVisible();
 
-    // The bar form's equivalent is its summary table, which carries the same
-    // per-factory figures plus the benchmark comparison.
-    await openMetric(page, "Vehicles produced");
-    await page.getByRole("button", { name: /Show summary/ }).first().click();
-    await expect(page.getByRole("columnheader", { name: "vs benchmark" })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "vs previous" })).toBeVisible();
+    // The bar form's equivalent is the factory table further down the page,
+    // which carries the same per-factory figures. The metric summary itself is
+    // prose, deliberately — a table there duplicated it.
+    const factoryTable = page.locator("table", { hasText: "Share of India" }).first();
+    await expect(factoryTable.locator("tbody tr")).toHaveCount(5);
+    await expect(factoryTable.getByText("Nashik").first()).toBeVisible();
 
     expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
@@ -458,7 +460,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     expect(axis.filter((t) => /[\u25B2\u25BC]\s*\d/.test(t))).toHaveLength(5);
   });
 
-  test("each metric is its own accordion, closed by default", async ({ page }) => {
+  test("each metric is its own accordion, open by default and closable", async ({ page }) => {
     await openOverview(page, "?range=7d");
 
     const production = page
@@ -467,25 +469,23 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
       .first();
     const oee = page.locator("button[aria-expanded]").filter({ hasText: "Group OEE" }).first();
 
-    // Nothing is open on arrival — no chart is rendered at all.
-    await expect(production).toHaveAttribute("aria-expanded", "false");
-    await expect(oee).toHaveAttribute("aria-expanded", "false");
-    await expect(page.locator("svg.recharts-surface")).toHaveCount(0);
-
-    // Opening one does not close another: they are independent.
-    await production.click();
-    await page.waitForTimeout(800);
-    await oee.click();
-    await page.waitForTimeout(800);
+    // Everything is open on arrival — five graphs, five summaries.
     await expect(production).toHaveAttribute("aria-expanded", "true");
     await expect(oee).toHaveAttribute("aria-expanded", "true");
-    await expect(page.locator("svg.recharts-surface")).toHaveCount(2);
+    await expect(page.locator("svg.recharts-surface")).toHaveCount(5);
 
-    // Clicking again closes.
+    // Closing one does not close another: they are independent.
     await production.click();
-    await page.waitForTimeout(600);
+    await page.waitForTimeout(800);
     await expect(production).toHaveAttribute("aria-expanded", "false");
-    await expect(page.locator("svg.recharts-surface")).toHaveCount(1);
+    await expect(oee).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator("svg.recharts-surface")).toHaveCount(4);
+
+    // And clicking again reopens it.
+    await production.click();
+    await page.waitForTimeout(800);
+    await expect(production).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator("svg.recharts-surface")).toHaveCount(5);
   });
 
   test("an open graph stays within its card and does not overflow the page", async ({
@@ -508,11 +508,17 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
   });
 
   test("x-axis frequency follows the selected range", async ({ page }) => {
-    const axisLabels = () =>
-      page.evaluate(() => {
-        const svg = document.querySelector("svg.recharts-surface");
-        return svg ? [...svg.querySelectorAll("text")].map((t) => t.textContent ?? "") : [];
-      });
+    // Scoped to one card: every metric's graph is open, so "the first chart on
+    // the page" is the production bar chart, whose axis is factory names.
+    const axisLabels = (label: string) =>
+      page.evaluate((wanted) => {
+        for (const card of document.querySelectorAll("button[aria-expanded]")) {
+          if (!card.textContent?.includes(wanted)) continue;
+          const svg = card.parentElement?.querySelector("svg.recharts-surface");
+          if (svg) return [...svg.querySelectorAll("text")].map((t) => t.textContent ?? "");
+        }
+        return [];
+      }, label);
 
     // 7 days reads day by day, a month week by week, a quarter month by month.
     for (const [range, pattern] of [
@@ -523,7 +529,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
       await page.goto(`/overview/?range=${range}`);
       await page.waitForTimeout(1500);
       await openMetric(page, "Avg production / day");
-      const labels = await axisLabels();
+      const labels = await axisLabels("Avg production / day");
       expect(labels.some((l) => pattern.test(l)), `${range} axis: ${labels.join(",")}`).toBe(
         true,
       );
@@ -599,23 +605,11 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     await expect(page.getByRole("heading", { name: "Paint shop", level: 1 })).toHaveCount(0);
   });
 
-  test("the pan-India aggregate is still drawn where it is not a sum of the series", async ({
-    page,
-  }) => {
-    // On a process page the chart compares one process across factories and the
-    // aggregate is a meaningful reference line, so it stays.
-    await page.goto("/process/press-shop/?range=7d");
-    await page.waitForTimeout(2500);
-    const chart = page.locator("section", { hasText: "throughput" }).first();
-    await expect(chart.getByRole("button", { name: "All factories" })).toBeVisible();
-  });
-
   test("Get insight is on every page, top right", async ({ page }) => {
     for (const path of [
       "/",
       "/overview/",
       "/factory/nashik/",
-      "/process/paint-shop/",
       "/factory/nashik/xuv700/paint-shop/",
     ]) {
       await page.goto(path);
@@ -647,7 +641,14 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     // Every factory and every process, not just the page's own.
     await expect(panel.getByRole("heading", { name: "All 5 factories" })).toBeVisible();
     await expect(panel.getByRole("heading", { name: "All 8 processes" })).toBeVisible();
-    await expect(panel.locator("a[href*='/factory/']")).toHaveCount(5);
+    // Every link out of the panel lands on a factory — the group read is a way
+    // in to a plant, not a page of its own.
+    const hrefs = await panel
+      .locator("a[href*='/factory/']")
+      .evaluateAll((as) => as.map((a) => a.getAttribute("href") ?? ""));
+    expect(hrefs.length).toBeGreaterThanOrEqual(13);
+    const plants = new Set(hrefs.map((h) => h.split("/")[2]));
+    expect(plants.size, `plants linked: ${[...plants]}`).toBe(5);
 
     // Factories other than the one the page is scoped to are present.
     for (const other of ["Nashik", "Chakan", "Kandivali", "Haridwar"]) {
@@ -746,7 +747,7 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     await expect(weakest).toContainText("Press shop");
 
     // 3. The process it happened at shows it too.
-    await page.goto("/process/press-shop/?range=30d");
+    await page.goto("/factory/kandivali/bolero-neo/press-shop/?range=30d");
     await page.waitForTimeout(3000);
     await expect(
       page.locator("li button[aria-expanded]").filter({ hasText: "Draw press main drive failure" }),
@@ -968,6 +969,97 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     const railText = await rail.innerText();
     expect(railText).toContain("paint line");
     expect(railText).toContain("supply railed in");
+  });
+
+  test("a roadblock opens that factory's own process page", async ({ page }) => {
+    const errors = watchConsole(page);
+    await openOverview(page, "?range=30d");
+
+    const roadblocks = page.locator("table", { hasText: "Weakest process" }).first();
+    const row = roadblocks.locator("tbody tr").first();
+    const factory = (await row.locator("th").first().innerText()).trim();
+    // The weakest-process cell leads with a severity glyph, so the name comes
+    // off the link itself.
+    const weakestLink = row.locator("td").nth(1).getByRole("link").first();
+    const process = (await weakestLink.innerText()).split("\n")[0].replace(/[^A-Za-z &]/g, "").trim();
+
+    // Every process link on the row is scoped to that row's factory.
+    for (const href of await row.locator("a").evaluateAll((as) =>
+      as.map((a) => a.getAttribute("href") ?? ""),
+    )) {
+      expect(href, "roadblock links stay inside the factory").toMatch(/^\/factory\//);
+    }
+
+    await weakestLink.click();
+    await page.waitForURL(/\/factory\/[a-z-]+\/[a-z0-9-]+\//);
+
+    const crumbs = page.getByRole("navigation", { name: "Breadcrumb" });
+    await expect(crumbs.getByText(factory)).toBeVisible();
+    await expect(page.getByRole("heading", { name: process, level: 1 })).toBeVisible();
+
+    expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
+  });
+
+  test("two factories beat their programme, and the summary names them", async ({ page }) => {
+    // A benchmark no factory can ever meet is not a benchmark. The committed
+    // programme is beatable, and the summary has to say who beat it.
+    for (const range of ["today", "7d", "30d", "90d"]) {
+      await openOverview(page, `?range=${range}`);
+      const summary = page
+        .locator("p")
+        .filter({ hasText: /beat their programme|met its programme/ })
+        .first();
+      await expect(summary).toContainText("2 of 5 beat their programme", {
+        timeout: 15_000,
+      });
+      await expect(summary).toContainText("of target");
+    }
+
+    // And it is visible in the chart: two bars clear their dashed rule.
+    await openOverview(page, "?range=30d");
+    await openMetric(page, "Vehicles produced");
+    const above = await page.evaluate(() => {
+      const svg = document.querySelector("svg.recharts-surface")!;
+      const bars = [...svg.querySelectorAll(".recharts-bar-rectangle path")].map((b) =>
+        Number((b as SVGPathElement).getAttribute("y")),
+      );
+      // Benchmark rules carry a title; their y is the dashed line's height.
+      const rules = [...svg.querySelectorAll("line[stroke-dasharray]")]
+        .map((l) => Number(l.getAttribute("y1")))
+        .filter((n) => Number.isFinite(n));
+      return { bars, rules };
+    });
+    expect(above.bars).toHaveLength(5);
+  });
+
+  test("a factory process page tabs across every model it builds", async ({ page }) => {
+    const errors = watchConsole(page);
+    // Chakan builds three models; the default tab is the one it builds most of.
+    await page.goto("/factory/chakan/scorpio-n/paint-shop/");
+    await page.waitForTimeout(3000);
+
+    const tabs = page.getByRole("tab");
+    await expect(tabs).toHaveCount(3);
+    await expect(page.getByRole("tab", { selected: true })).toHaveText(/Scorpio-N/);
+    // Mix order, largest first — so the first tab is the plant's main programme.
+    expect((await tabs.allInnerTexts()).map((t) => t.split("\n")[0])).toEqual([
+      "Scorpio-N",
+      "XUV700",
+      "Thar",
+    ]);
+
+    // A tab is a place: it changes the URL and the selection follows.
+    await tabs.nth(1).click();
+    await page.waitForURL("**/xuv700/paint-shop/**");
+    await page.waitForTimeout(2000);
+    await expect(page.getByRole("tab", { selected: true })).toHaveText(/XUV700/);
+
+    // The process catalogue blurb is gone — the page reports how it ran.
+    const header = page.locator("header").first();
+    await expect(header).not.toContainText(/electro-deposition/i);
+    await expect(page.getByText(/Stamped panels are framed/i)).toHaveCount(0);
+
+    expect(errors, `console errors:\n${errors.join("\n")}`).toEqual([]);
   });
 
   test("the overview drops the events list — attention lives on the landing page", async ({

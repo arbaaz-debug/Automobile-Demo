@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo } from "react";
 import { AlertTriangle } from "lucide-react";
 import {
   processesByStream,
@@ -38,12 +39,36 @@ export function ProcessFlowStripMap({
   bottleneckId,
   search,
   className,
+  factories,
 }: {
   chain: ProcessDayMetrics[];
   bottleneckId: string;
   search?: string | null;
   className?: string;
+  /**
+   * Every factory's own chain, used to decide where a chip leads.
+   *
+   * This strip is the pan-India view, but a process page belongs to a plant, so
+   * each chip opens the factory running that process worst — the one a reader
+   * would go to next anyway. Without this the chip has nowhere to go.
+   */
+  factories: { plantId: string; chain: ProcessDayMetrics[] }[];
 }) {
+  const worstPlantFor = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const c of chain) {
+      let worst: { plantId: string; oee: number } | null = null;
+      for (const f of factories) {
+        const row = f.chain.find((x) => x.processId === c.processId);
+        if (row && (!worst || row.oee < worst.oee)) {
+          worst = { plantId: f.plantId, oee: row.oee };
+        }
+      }
+      if (worst) out.set(c.processId, worst.plantId);
+    }
+    return out;
+  }, [chain, factories]);
+
   const byId = new Map(chain.map((c) => [c.processId, c]));
   const body = processesByStream("body");
   const chassis = processesByStream("chassis");
@@ -60,6 +85,7 @@ export function ProcessFlowStripMap({
             byId={byId}
             bottleneckId={bottleneckId}
             search={search}
+            plantFor={(id) => worstPlantFor.get(id) ?? factories[0]?.plantId ?? ""}
           />
           <StreamRow
             stream="chassis"
@@ -67,6 +93,7 @@ export function ProcessFlowStripMap({
             byId={byId}
             bottleneckId={bottleneckId}
             search={search}
+            plantFor={(id) => worstPlantFor.get(id) ?? factories[0]?.plantId ?? ""}
           />
         </div>
 
@@ -87,6 +114,7 @@ export function ProcessFlowStripMap({
                   metrics={byId.get(p.id)}
                   isBottleneck={p.id === bottleneckId}
                   search={search}
+                  plantId={worstPlantFor.get(p.id) ?? factories[0]?.plantId ?? ""}
                 />
               </li>
             ))}
@@ -103,12 +131,14 @@ function StreamRow({
   byId,
   bottleneckId,
   search,
+  plantFor,
 }: {
   stream: ProcessStream;
   processes: ProcessDef[];
   byId: Map<string, ProcessDayMetrics>;
   bottleneckId: string;
   search?: string | null;
+  plantFor: (processId: string) => string;
 }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col">
@@ -122,6 +152,7 @@ function StreamRow({
               metrics={byId.get(p.id)}
               isBottleneck={p.id === bottleneckId}
               search={search}
+              plantId={plantFor(p.id)}
             />
           </li>
         ))}
@@ -170,16 +201,18 @@ function ProcessChip({
   metrics,
   isBottleneck,
   search,
+  plantId,
 }: {
   def: ProcessDef;
   metrics?: ProcessDayMetrics;
   isBottleneck: boolean;
   search?: string | null;
+  plantId: string;
 }) {
   return (
     <Link
-      href={routes.process(def.id, search)}
-      aria-label={`${def.name} — open process overview`}
+      href={routes.factoryProcessDefault(plantId, def.id, search)}
+      aria-label={`${def.name} — open at the factory running it worst`}
       className={cn(
         "group flex min-w-0 flex-1 flex-col justify-between rounded-md border bg-[var(--surface-2)] px-2 py-1.5 transition",
         "hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)]",

@@ -116,6 +116,37 @@ export const PLANT_PROCESS_PROFILE: Record<string, PlantProfile> = {
   },
 };
 
+/**
+ * The vehicle programme each factory is held to, as a share of the press-shop
+ * sets it schedules.
+ *
+ * A plant's build programme is a commitment, not a theoretical ceiling: it is
+ * agreed ahead of the month against known line availability and supply, so it
+ * always sits below the raw stamping schedule, and a plant can genuinely beat
+ * it. Benchmarking vehicles against raw press sets instead would mean no
+ * factory could ever meet its target — the yield of eight sequential processes
+ * guarantees it — which makes the benchmark useless as a management signal.
+ *
+ * Haridwar and Zaheerabad carry conservative programmes and clear them:
+ * Haridwar because it is still ramping and was committed cautiously,
+ * Zaheerabad because its programme is set by the engine supply that also caps
+ * it, so it commits to what it can actually feed. Nashik and Chakan carry
+ * stretch programmes against their nameplate capacity. Kandivali's was agreed
+ * before the draw press failed.
+ */
+export const PLANT_PROGRAMME: Record<string, number> = {
+  haridwar: 0.72,
+  zaheerabad: 0.71,
+  nashik: 0.82,
+  chakan: 0.79,
+  kandivali: 0.75,
+};
+
+/** The committed share for a plant; falls back to the group's median. */
+export function programmeFactorFor(plantId: string): number {
+  return PLANT_PROGRAMME[plantId] ?? 0.75;
+}
+
 /** The profile for one plant and process; neutral where none is declared. */
 export function profileFor(plantId: string, processId: string): ProcessProfile {
   return PLANT_PROCESS_PROFILE[plantId]?.[processId] ?? NEUTRAL;
@@ -134,6 +165,12 @@ export function profileNote(plantId: string, processId: string): string | undefi
 // A typo in a plant or process id would silently produce a neutral profile and
 // a factory that quietly looks like every other one — exactly the bug this file
 // exists to fix. Fail at module load instead.
+for (const plantId of Object.keys(PLANT_PROGRAMME)) {
+  if (!PLANTS.some((p) => p.id === plantId)) {
+    throw new Error(`Programme declared for unknown plant "${plantId}"`);
+  }
+}
+
 for (const [plantId, profile] of Object.entries(PLANT_PROCESS_PROFILE)) {
   if (!PLANTS.some((p) => p.id === plantId)) {
     throw new Error(`Plant profile declared for unknown plant "${plantId}"`);

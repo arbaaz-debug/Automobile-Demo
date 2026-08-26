@@ -32,7 +32,7 @@ import {
   type ProcessDayMetrics,
 } from "@/domain/manufacturing/processMetrics";
 import { PROCESSES, PROCESS_BY_ID, terminalProcess } from "@/domain/manufacturing/processes";
-import { profileNote } from "@/domain/manufacturing/plantProfiles";
+import { profileNote, programmeFactorFor } from "@/domain/manufacturing/plantProfiles";
 import { insightsForChains, type Insight } from "@/domain/manufacturing/insights";
 import {
   incidentsInWindow,
@@ -381,8 +381,11 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
     const worst = avgChain.chain.reduce((a, b) => (b.oee < a.oee ? b : a));
     const prev = previousTotals.get(plantId);
     const oee = weightedMean(series.points, (x) => x.oee, (x) => x.produced);
-    const benchmarkPerDay =
-      avgChain.chain.find((c) => c.processId === "press-shop")?.input ?? 0;
+    // The plant's committed vehicle programme: the sets it schedules through
+    // the press shop, times the share it undertook to finish. Not the raw
+    // stamping schedule — see `PLANT_PROGRAMME`.
+    const scheduledSets = avgChain.chain.find((c) => c.processId === "press-shop")?.input ?? 0;
+    const benchmarkPerDay = scheduledSets * programmeFactorFor(plantId);
 
     return {
       plantId,
@@ -407,8 +410,8 @@ export function loadOverview(filters: OverviewFilters): OverviewData {
       worstOee: worst.oee,
       worstProcessCause: profileNote(plantId, worst.processId),
       bottleneckCause: profileNote(plantId, avgChain.bottleneck.processId),
-      // The press shop's input is the plant's scheduled build programme, so the
-      // benchmark is what it was actually asked to build, not a round number.
+      // What the plant undertook to build this window — a real commitment it
+      // can beat or miss, not a round number.
       benchmark: benchmarkPerDay * days,
       benchmarkPerDay,
       deltas: {

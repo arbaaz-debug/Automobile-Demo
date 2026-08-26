@@ -5,7 +5,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo } from "react";
 import {
   AlertTriangle,
-  ArrowRight,
   CalendarClock,
   Car,
   CircleCheck,
@@ -34,7 +33,7 @@ import { IncidentsPanel } from "@/components/overview/IncidentsPanel";
 import { InsightsPanel } from "@/components/overview/InsightsPanel";
 import { FactoryProcessChain } from "@/components/factory/FactoryProcessChain";
 import { PressShopDetail } from "@/components/factory/PressShopDetail";
-import { fmtInt, fmtPct } from "@/lib/format";
+import { cn, fmtInt, fmtPct } from "@/lib/format";
 import { BAND_COLOR, BAND_LABEL, SERIES, STATUS, STATUS_TEXT } from "@/lib/theme";
 import { factoryProcessCrumbs, routes } from "@/lib/routes";
 
@@ -136,36 +135,54 @@ export function FactoryProcessView({
             <h1 className="mt-1 text-[20px] font-semibold tracking-tight text-[var(--text-primary)]">
               {def.name}
             </h1>
-            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-[var(--text-secondary)]">
-              <span className="inline-flex items-center gap-1 rounded bg-[var(--surface-3)] px-1.5 py-0.5 text-[11px] font-medium">
-                <Car size={11} aria-hidden />
-                {sku.name}
-              </span>
-              <span className="text-[var(--text-muted)]">
-                {label} · {fmtPct(share, 0)} of this factory&rsquo;s mix · {data.windowLabel}
-              </span>
-            </p>
-            <p className="mt-2 max-w-4xl text-[12px] leading-relaxed text-[var(--text-secondary)]">
-              {def.description}
+            {/* The model and its share are on the tab strip below, so they are
+                not repeated here. */}
+            <p className="mt-1 text-[12px] text-[var(--text-muted)]">
+              {label} · {data.windowLabel}
             </p>
           </header>
 
-          {/* --- model switcher --------------------------------------------- */}
+          {/* --- model tabs ---------------------------------------------------
+              Every model this factory builds, in mix order, so the tab strip is
+              the same on all eight process pages and the first tab is always
+              the plant's main programme. Links rather than buttons: the model
+              is in the URL, so a tab is a place, and can be opened in a new tab
+              or shared like any other. */}
 
           {skus.length > 1 ? (
-            <div className="mb-5 flex flex-wrap items-center gap-2">
-              <span className="text-[11px] text-[var(--text-muted)]">Same process, other models:</span>
-              {skus
-                .filter((s) => s.id !== skuId)
-                .map((s) => (
+            <div
+              role="tablist"
+              aria-label="Model"
+              className="mb-5 flex flex-wrap items-center gap-1 border-b border-[var(--border)]"
+            >
+              {skus.map((s) => {
+                const on = s.id === skuId;
+                return (
                   <Link
                     key={s.id}
                     href={routes.factoryProcess(factoryId, s.id, processId, search)}
-                    className="rounded border border-[var(--border)] px-2 py-1 text-[11px] font-medium text-[var(--text-secondary)] transition hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]"
+                    role="tab"
+                    aria-selected={on}
+                    aria-current={on ? "page" : undefined}
+                    className={cn(
+                      "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-[12px] font-medium transition",
+                      on
+                        ? "border-[var(--series-1)] text-[var(--text-primary)]"
+                        : "border-transparent text-[var(--text-muted)] hover:border-[var(--border-strong)] hover:text-[var(--text-secondary)]",
+                    )}
                   >
                     {s.name}
+                    <span
+                      className={cn(
+                        "tabular text-[10px]",
+                        on ? "text-[var(--text-secondary)]" : "text-[var(--text-muted)]",
+                      )}
+                    >
+                      {fmtPct(s.share, 0)}
+                    </span>
                   </Link>
-                ))}
+                );
+              })}
             </div>
           ) : null}
 
@@ -356,15 +373,6 @@ export function FactoryProcessView({
             </>
           ) : null}
 
-          <div className="mb-6">
-            <Link
-              href={routes.process(processId, search)}
-              className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--text-secondary)] transition hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]"
-            >
-              Compare {def.name} across every factory
-              <ArrowRight size={12} aria-hidden />
-            </Link>
-          </div>
         </>
       )}
     </AppShell>

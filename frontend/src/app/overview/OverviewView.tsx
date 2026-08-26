@@ -116,9 +116,12 @@ export function OverviewView() {
   const filters = useFilterState(searchParams, push);
   const { data, loading, updatedAt, refresh } = useOverview(filters);
 
-  // Which metric accordions are open. All closed by default — the page opens on
-  // the numbers, and the graphs are there when someone asks for them.
-  const [openMetricIds, setOpenMetricIds] = useState<Set<string>>(() => new Set());
+  // Which metric accordions are open. All open by default: the split across
+  // factories is the point of the page, not an optional detail, so it should
+  // not need five clicks to see. Each still closes individually.
+  const [openMetricIds, setOpenMetricIds] = useState<Set<string>>(
+    () => new Set(METRICS.map((m) => m.id)),
+  );
 
   const search = searchParams?.toString() ?? "";
   const scopeName =
@@ -162,10 +165,10 @@ export function OverviewView() {
           </header>
 
           {/* --- headline metrics, each its own accordion --------------------
-              Every card opens its own graph in place, at the card's width, and
-              all start closed. `items-start` keeps the unopened cards at their
-              natural height rather than stretching them to match an open
-              neighbour. */}
+              Every card carries its own graph and summary in place, at the
+              card's width, open on arrival and closable one by one.
+              `items-start` keeps a closed card at its natural height rather
+              than stretching it to match an open neighbour. */}
 
           <div className="mb-6 grid grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {METRICS.map((m) => (
@@ -235,7 +238,7 @@ export function OverviewView() {
 
           {/* --- process chain, last ------------------------------------------ */}
 
-          <SectionLabel>Car manufacturing process — click a process for detail</SectionLabel>
+          <SectionLabel>Car manufacturing process — click a process to open it at the factory running it worst</SectionLabel>
 
           <Card className="mb-6">
             <CardHeader
@@ -248,6 +251,7 @@ export function OverviewView() {
                 chain={data.chain.chain}
                 bottleneckId={data.chain.bottleneck.processId}
                 search={search}
+                factories={data.factories}
               />
             </CardBody>
           </Card>

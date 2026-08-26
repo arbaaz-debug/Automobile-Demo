@@ -54,10 +54,6 @@ export function StationDetailPanel({
           <StatusPill status={station.status} />
         </div>
 
-        <p className="mt-2 text-[11px] leading-relaxed text-[var(--text-secondary)]">
-          {def.description}
-        </p>
-
         <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-[var(--text-muted)]">
           {def.capacityT ? <span>Rated {fmtInt(def.capacityT)} T</span> : null}
           <span>Installed {fmtInt(def.ratedKw)} kW</span>

@@ -46,7 +46,21 @@ export interface Briefing {
   /** Every factory, ranked worst-first by effectiveness. */
   factories: { name: string; plantId: string; detail: string; tone: Fact["tone"] }[];
   /** Every process group-wide, ranked by how close it is to its ceiling. */
-  processes: { processId: string; name: string; detail: string; isConstraint: boolean }[];
+  processes: {
+    processId: string;
+    name: string;
+    detail: string;
+    isConstraint: boolean;
+    /**
+     * The factory running this process worst.
+     *
+     * A process is only ever opened through a plant, so the group-level list
+     * needs somewhere to send a reader. The weakest site is where the group
+     * figure is coming from, and where the work is.
+     */
+    worstPlantId: string;
+    worstPlantName: string;
+  }[];
   /**
    * The page you opened this from, set in the context of the group. Absent on
    * the overview, where the group read *is* the page.
@@ -126,12 +140,20 @@ function groupRead(data: OverviewData): Omit<Briefing, "focus"> {
     })),
     processes: [...chain]
       .sort((a, b) => b.utilisation - a.utilisation)
-      .map((c) => ({
-        processId: c.processId,
-        name: PROCESS_BY_ID.get(c.processId)?.name ?? c.processId,
-        detail: `${pct(c.utilisation)} of capacity · ${pct(c.oee)} OEE · ${pct(c.ftt)} FTT · ${int(c.produced)}/day`,
-        isConstraint: c.processId === data.chain.bottleneck.processId,
-      })),
+      .map((c) => {
+        const worst = [...data.factories]
+          .map((f) => ({ f, row: f.chain.find((x) => x.processId === c.processId) }))
+          .filter((x) => x.row)
+          .sort((x, y) => x.row!.oee - y.row!.oee)[0]?.f;
+        return {
+          processId: c.processId,
+          name: PROCESS_BY_ID.get(c.processId)?.name ?? c.processId,
+          detail: `${pct(c.utilisation)} of capacity · ${pct(c.oee)} OEE · ${pct(c.ftt)} FTT · ${int(c.produced)}/day`,
+          isConstraint: c.processId === data.chain.bottleneck.processId,
+          worstPlantId: worst?.plantId ?? data.factories[0]?.plantId ?? "",
+          worstPlantName: worst?.name ?? "",
+        };
+      }),
     recommendations: data.insights.slice(0, 8),
     incidents: [...data.incidents].sort((a, b) => b.lostTotal - a.lostTotal),
   };

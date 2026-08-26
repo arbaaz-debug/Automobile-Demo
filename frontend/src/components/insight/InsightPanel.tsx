@@ -209,7 +209,7 @@ export function InsightPanel({
                   {briefing.processes.map((pr) => (
                     <li key={pr.processId}>
                       <Link
-                        href={routes.process(pr.processId, null)}
+                        href={routes.factoryProcessDefault(pr.worstPlantId, pr.processId, null)}
                         className="flex items-baseline gap-1.5 rounded px-1.5 py-1 transition hover:bg-[var(--surface-3)]/60"
                       >
                         {/* Glyph, not colour, marks the constraint. */}

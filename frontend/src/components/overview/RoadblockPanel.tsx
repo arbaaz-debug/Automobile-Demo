@@ -21,6 +21,10 @@ import { routes } from "@/lib/routes";
  * Sorted worst-first by effectiveness, so the plant needing attention is at the
  * top rather than in alphabetical order.
  *
+ * Every process on a row links to *that factory's* page for it, not to a
+ * group-level view: the roadblock is a fact about one plant, so the way out of
+ * it has to land on that plant's line.
+ *
  * Deliberately compact. This sits beside the recommendations panel at half
  * width, so the factory name carries the link rather than a separate button
  * column, and severity rides on a glyph and a figure rather than on a wide
@@ -75,7 +79,7 @@ export function RoadblockPanel({
               </div>
 
               <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
-                <Link href={routes.process(f.bottleneckProcessId, search)} className="group block">
+                <Link href={routes.factoryProcessDefault(f.plantId, f.bottleneckProcessId, search)} className="group block">
                   <span className="block text-[9px] uppercase tracking-[0.1em] text-[var(--text-muted)]">
                     Constraint
                   </span>
@@ -106,7 +110,7 @@ export function RoadblockPanel({
                   </span>
                 </Link>
 
-                <Link href={routes.process(f.worstProcessId, search)} className="group block">
+                <Link href={routes.factoryProcessDefault(f.plantId, f.worstProcessId, search)} className="group block">
                   <span className="block text-[9px] uppercase tracking-[0.1em] text-[var(--text-muted)]">
                     Weakest process
                   </span>
@@ -188,7 +192,7 @@ export function RoadblockPanel({
                 </th>
 
                 <td className="px-2 py-2.5 align-top">
-                  <Link href={routes.process(f.bottleneckProcessId, search)} className="group block">
+                  <Link href={routes.factoryProcessDefault(f.plantId, f.bottleneckProcessId, search)} className="group block">
                     <span className="flex items-baseline gap-1">
                       <AlertTriangle
                         size={11}
@@ -218,7 +222,7 @@ export function RoadblockPanel({
                 </td>
 
                 <td className="px-2 py-2.5 align-top">
-                  <Link href={routes.process(f.worstProcessId, search)} className="group block">
+                  <Link href={routes.factoryProcessDefault(f.plantId, f.worstProcessId, search)} className="group block">
                     <span className="flex items-baseline gap-1">
                       <span
                         aria-hidden

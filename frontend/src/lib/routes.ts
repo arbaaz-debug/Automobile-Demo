@@ -11,18 +11,20 @@
  *
  *   Home — the factory map                        /
  *   └── Pan-India overview                        /overview/
- *       ├── Factory  <location>                   /factory/<factoryId>/
- *       │   └── <Model> · <Process>               /factory/<factoryId>/<skuId>/<processId>/
- *       └── Process  <name>  (pan-India view)     /process/<processId>/
+ *       └── Factory  <location>                   /factory/<factoryId>/
+ *           └── <Model> · <Process>               /factory/<factoryId>/<skuId>/<processId>/
  *
- * The pan-India process view is a sibling of the factory branch, not a parent
- * of it: it answers "how is paint doing across India", which is a different
- * question from "how is paint doing on the Thar line at Nashik".
+ * A process is only ever reached *through* a factory. There is no pan-India
+ * process page: "how is paint doing across India" is already answered by the
+ * overview's process chain, and every action a reader can take — the roadblock,
+ * the recommendation, the incident — belongs to one plant. Sending them to a
+ * group-level process page put a page between them and the thing they can
+ * actually go and fix.
  */
 
 import { PLANT_BY_ID } from "@/domain/stamping/catalog";
 import { PROCESS_BY_ID } from "@/domain/manufacturing/processes";
-import { VEHICLE_SKU_BY_ID } from "@/domain/manufacturing/vehicles";
+import { skusForPlant, VEHICLE_SKU_BY_ID } from "@/domain/manufacturing/vehicles";
 
 export interface Crumb {
   label: string;
@@ -57,8 +59,18 @@ export const routes = {
     processId: string,
     search?: string | null,
   ) => withFilters(`/factory/${factoryId}/${skuId}/${processId}/`, search),
-  process: (processId: string, search?: string | null) =>
-    withFilters(`/process/${processId}/`, search),
+  /**
+   * A process at a factory, without having to know which model to open it on.
+   *
+   * Defaults to the model the plant builds most of, which is also the tab the
+   * process page opens on — so a roadblock, an insight and a direct link all
+   * land on the same screen.
+   */
+  factoryProcessDefault: (factoryId: string, processId: string, search?: string | null) =>
+    withFilters(
+      `/factory/${factoryId}/${defaultSkuFor(factoryId)}/${processId}/`,
+      search,
+    ),
   /** Kept so older links and the factory table keep working. */
   plant: (factoryId: string, search?: string | null) =>
     withFilters(`/factory/${factoryId}/`, search),
@@ -72,12 +84,9 @@ export function overviewCrumbs(search?: string | null): Crumb[] {
   return [{ label: "Home", href: routes.home(search) }, { label: "Pan-India overview" }];
 }
 
-export function processCrumbs(processId: string, search?: string | null): Crumb[] {
-  return [
-    { label: "Home", href: routes.home(search) },
-    { label: "Pan-India overview", href: routes.overview(search) },
-    { label: PROCESS_BY_ID.get(processId)?.name ?? processId },
-  ];
+/** The model a factory builds most of — the default tab on its process pages. */
+export function defaultSkuFor(factoryId: string): string {
+  return skusForPlant(factoryId)[0]?.id ?? "thar";
 }
 
 export function factoryCrumbs(factoryId: string, search?: string | null): Crumb[] {

@@ -101,7 +101,7 @@ export function IncidentsPanel({
                       </span>
                     </span>
                     <Link
-                      href={routes.process(row.incident.processId, search)}
+                      href={routes.factoryProcessDefault(row.incident.plantId, row.incident.processId, search)}
                       className="inline-flex rounded border border-[var(--border)] px-2 py-1 text-[10px] font-medium text-[var(--text-secondary)] transition hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]"
                     >
                       Open {row.processName}

@@ -218,10 +218,10 @@ export function InsightsPanel({
                       <ArrowRight size={11} aria-hidden />
                     </Link>
                     <Link
-                      href={routes.process(insight.processId, search)}
+                      href={routes.factoryProcessDefault(insight.plantId, insight.processId, search)}
                       className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 text-[10px] font-medium text-[var(--text-secondary)] transition hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]"
                     >
-                      Open {insight.processName}
+                      Open {insight.plantName} · {insight.processName}
                       <ArrowRight size={11} aria-hidden />
                     </Link>
                   </div>

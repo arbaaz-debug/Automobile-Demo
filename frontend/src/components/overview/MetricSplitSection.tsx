@@ -6,7 +6,6 @@ import type { FactoryRow, Granularity, OverviewData } from "@/services/data/over
 import { FactorySeriesChart, type MetricKey } from "./FactorySeriesChart";
 import { ProductionSplitChart } from "./ProductionSplitChart";
 import { cn, fmtPct } from "@/lib/format";
-import { STATUS_TEXT } from "@/lib/theme";
 
 export interface MetricDef {
   id: string;
@@ -55,7 +54,9 @@ export function MetricSplitSection({
   metric: MetricDef;
   compact?: boolean;
 }) {
-  const [summaryOpen, setSummaryOpen] = useState(false);
+  // Open with the graph. The sentence is the reading of the chart, so hiding
+  // it by default asked every reader to derive it themselves.
+  const [summaryOpen, setSummaryOpen] = useState(true);
 
   const ranked = useMemo(
     () => [...data.factories].sort((a, b) => metric.read(b) - metric.read(a)),
@@ -120,85 +121,27 @@ export function MetricSplitSection({
 
       {summaryOpen ? (
         <div className={cn("border-t border-[var(--border)]", compact ? "px-3 py-2" : "px-4 py-3")}>
-          <p className={cn("mb-3 leading-relaxed text-[var(--text-secondary)]", compact ? "text-[11px]" : "text-[12px]")}>
+          <p
+            className={cn(
+              "leading-relaxed text-[var(--text-secondary)]",
+              compact ? "text-[11px]" : "text-[12px]",
+            )}
+          >
             {summaryText(metric, ranked, data)}
           </p>
-
-          <div className="overflow-x-auto">
-            <table className={cn("w-full text-[11px]", compact ? "min-w-[300px]" : "min-w-[420px]")}>
-              <thead>
-                <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-[0.1em] text-[var(--text-muted)]">
-                  <th scope="col" className="py-1.5 pr-3 text-left font-medium">
-                    Factory
-                  </th>
-                  <th scope="col" className="px-3 py-1.5 text-right font-medium">
-                    {metric.label}
-                  </th>
-                  <th scope="col" className="px-3 py-1.5 text-right font-medium">
-                    vs previous
-                  </th>
-                  {metric.form === "bar" ? (
-                    <th scope="col" className="py-1.5 pl-3 text-right font-medium">
-                      vs benchmark
-                    </th>
-                  ) : null}
-                </tr>
-              </thead>
-              <tbody>
-                {ranked.map((f) => {
-                  const d = metric.delta(f);
-                  return (
-                    <tr key={f.plantId} className="border-b border-[var(--border)]/50 last:border-0">
-                      <th scope="row" className="py-1.5 pr-3 text-left font-normal">
-                        <span className="flex items-center gap-1.5">
-                          <span
-                            aria-hidden
-                            className="size-2 shrink-0 rounded-[2px]"
-                            style={{ backgroundColor: f.color }}
-                          />
-                          <span className="text-[var(--text-secondary)]">{f.name}</span>
-                        </span>
-                      </th>
-                      <td className="tabular px-3 py-1.5 text-right font-semibold text-[var(--text-primary)]">
-                        {metric.format(metric.read(f))}
-                      </td>
-                      <td className="tabular px-3 py-1.5 text-right">
-                        <ChangeText change={d.change} inverse={metric.inverse} />
-                      </td>
-                      {metric.form === "bar" ? (
-                        <td className="tabular py-1.5 pl-3 text-right text-[var(--text-secondary)]">
-                          {f.benchmark > 0 ? fmtPct(f.produced / f.benchmark, 1) : "—"}
-                        </td>
-                      ) : null}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
         </div>
       ) : null}
     </div>
   );
 }
 
-function ChangeText({ change, inverse }: { change: number | null; inverse?: boolean }) {
-  if (change === null) {
-    return <span className="text-[var(--text-muted)]">—</span>;
-  }
-  const up = change >= 0;
-  const good = inverse ? !up : up;
-  return (
-    <span
-      className="font-medium"
-      style={{ color: good ? STATUS_TEXT.good : STATUS_TEXT.critical }}
-    >
-      <span aria-hidden>{up ? "▲" : "▼"}</span> {Math.abs(change * 100).toFixed(1)}%
-    </span>
-  );
+/** A sentence naming the spread, who moved, and who cleared their programme. */
+/** "a", "a and b", "a, b and c". */
+function list(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
-/** A sentence naming the spread and who moved, not a restatement of the table. */
 function summaryText(metric: MetricDef, ranked: FactoryRow[], data: OverviewData): string {
   if (ranked.length === 0) return "No factories in scope.";
   if (ranked.length === 1) {
@@ -223,12 +166,29 @@ function summaryText(metric: MetricDef, ranked: FactoryRow[], data: OverviewData
   const moverChange = mover ? (metric.delta(mover).change ?? 0) : 0;
   const moverGood = metric.inverse ? moverChange < 0 : moverChange > 0;
 
-  const attainment =
-    metric.form === "bar"
-      ? ` ${ranked.filter((f) => f.benchmark > 0 && f.produced >= f.benchmark).length} of ${
-          ranked.length
-        } met their programme.`
-      : "";
+  // Who cleared the committed programme, named — "2 of 5" alone tells a reader
+  // the score without telling them where to look.
+  let attainment = "";
+  if (metric.form === "bar") {
+    const met = ranked.filter((f) => f.benchmark > 0 && f.produced >= f.benchmark);
+    const missed = ranked.filter((f) => f.benchmark > 0 && f.produced < f.benchmark);
+    const worst = [...missed].sort(
+      (a, b) => a.produced / a.benchmark - b.produced / b.benchmark,
+    )[0];
+
+    if (met.length === 0) {
+      attainment = ` No factory met its programme${
+        worst ? `; ${worst.name} is furthest behind at ${fmtPct(worst.produced / worst.benchmark, 0)} of target` : ""
+      }.`;
+    } else {
+      attainment =
+        ` ${met.length} of ${ranked.length} beat their programme — ` +
+        `${list(met.map((f) => `${f.name} at ${fmtPct(f.produced / f.benchmark, 0)} of target`))}` +
+        (worst
+          ? `. ${worst.name} is furthest behind at ${fmtPct(worst.produced / worst.benchmark, 0)}.`
+          : ".");
+    }
+  }
 
   return (
     `${top.name} leads at ${metric.format(metric.read(top))} and ${bottom.name} trails at ` +
