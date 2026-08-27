@@ -6,7 +6,6 @@ import type { FactoryRow } from "@/services/data/overview";
 import { bandForOee } from "@/domain/stamping/oee";
 import { fmtInt, fmtPct } from "@/lib/format";
 import { BAND_COLOR, STATUS, STATUS_TEXT } from "@/lib/theme";
-import { Meter } from "@/components/ui/StatTile";
 import { routes } from "@/lib/routes";
 
 /**
@@ -27,8 +26,10 @@ import { routes } from "@/lib/routes";
  *
  * Deliberately compact. This sits beside the recommendations panel at half
  * width, so the factory name carries the link rather than a separate button
- * column, and severity rides on a glyph and a figure rather than on a wide
- * meter — colour alone never carries it either way.
+ * column. The weakest process states what is wrong in words rather than
+ * repeating its effectiveness as a number: the reason is the actionable part,
+ * and the shaped glyph beside it separates "critical" from "below target"
+ * without leaning on colour. The exact figure stays available on hover.
  *
  * `layout="stack"` is for the landing page's attention rail, which is narrower
  * than the table's four columns can honestly be read at. Rather than let the
@@ -100,14 +101,6 @@ export function RoadblockPanel({
                       {fmtPct(f.bottleneckUtilisation, 0)}
                     </span>
                   </span>
-                  <span className="mt-1 block">
-                    <Meter
-                      value={Math.min(1, f.bottleneckUtilisation)}
-                      color={STATUS.warning}
-                      label={`${f.name} constraint utilisation`}
-                      height={4}
-                    />
-                  </span>
                 </Link>
 
                 <Link href={routes.factoryProcessDefault(f.plantId, f.worstProcessId, search)} className="group block">
@@ -118,18 +111,13 @@ export function RoadblockPanel({
                     <span
                       aria-hidden
                       className="shrink-0 text-[10px]"
-                      style={{ color: severe ? STATUS_TEXT.critical : STATUS_TEXT.warning }}
+                      style={{ color: BAND_COLOR[band] }}
+                      title={`${fmtPct(f.worstOee, 0)} OEE`}
                     >
                       {severe ? "▲" : "◐"}
                     </span>
                     <span className="truncate text-[11px] font-medium text-[var(--text-primary)] group-hover:underline">
                       {f.worstProcessName}
-                    </span>
-                    <span
-                      className="tabular shrink-0 text-[11px] font-semibold"
-                      style={{ color: BAND_COLOR[band] }}
-                    >
-                      {fmtPct(f.worstOee, 0)}
                     </span>
                   </span>
                   <span className="mt-0.5 block text-[9px] leading-snug text-[var(--text-muted)]">
@@ -210,14 +198,6 @@ export function RoadblockPanel({
                         {fmtPct(f.bottleneckUtilisation, 0)}
                       </span>
                     </span>
-                    <span className="mt-1 block max-w-[120px]">
-                      <Meter
-                        value={Math.min(1, f.bottleneckUtilisation)}
-                        color={STATUS.warning}
-                        label={`${f.name} constraint utilisation`}
-                        height={4}
-                      />
-                    </span>
                   </Link>
                 </td>
 
@@ -227,18 +207,13 @@ export function RoadblockPanel({
                       <span
                         aria-hidden
                         className="shrink-0 text-[10px]"
-                        style={{ color: severe ? STATUS_TEXT.critical : STATUS_TEXT.warning }}
+                        style={{ color: BAND_COLOR[band] }}
+                        title={`${fmtPct(f.worstOee, 0)} OEE`}
                       >
                         {severe ? "▲" : "◐"}
                       </span>
                       <span className="truncate text-[11px] font-medium text-[var(--text-primary)] group-hover:underline">
                         {f.worstProcessName}
-                      </span>
-                      <span
-                        className="tabular shrink-0 text-[11px] font-semibold"
-                        style={{ color: BAND_COLOR[band] }}
-                      >
-                        {fmtPct(f.worstOee, 0)}
                       </span>
                     </span>
                     <span className="mt-0.5 block max-w-[190px] text-[9px] leading-snug text-[var(--text-muted)]">

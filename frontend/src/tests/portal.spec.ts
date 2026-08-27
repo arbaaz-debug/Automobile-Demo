@@ -959,8 +959,16 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     const weakest = new Set<string>();
     for (let i = 0; i < 5; i++) {
       const text = await rows.nth(i).innerText();
+      // The constraint still carries its utilisation; the weakest process is
+      // now the name and the reason, with no figure between them.
       constraints.add(text.split("CONSTRAINT")[1].split("%")[0].trim());
-      weakest.add(text.split("WEAKEST PROCESS")[1].split("%")[0].trim());
+      weakest.add(
+        text
+          .split("WEAKEST PROCESS")[1]
+          .split("\n")
+          .map((l) => l.trim())
+          .find((l) => /[A-Za-z]/.test(l))!,
+      );
     }
     expect(constraints.size, `constraints were: ${[...constraints]}`).toBeGreaterThanOrEqual(4);
     expect(weakest.size, `weakest were: ${[...weakest]}`).toBeGreaterThanOrEqual(3);
@@ -1194,6 +1202,57 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
         Math.abs(100 - ftt - rate),
         `FTT ${ftt}% and reject rate ${rate}% disagree at ${range}`,
       ).toBeLessThan(2.5);
+    }
+  });
+
+  test("roadblock rows carry the reason, not a meter or a second figure", async ({ page }) => {
+    // Both layouts: the overview's table and the landing page's rail.
+    for (const [path, scope] of [
+      ["/overview/?range=7d", "table"],
+      ["/?range=7d", "rail"],
+    ] as const) {
+      await page.goto(path);
+      await page.waitForTimeout(scope === "rail" ? 5000 : 4000);
+
+      const panel =
+        scope === "table"
+          ? page.locator("table", { hasText: "Weakest process" }).first()
+          : page.getByRole("list", { name: "Factory roadblocks" });
+      await expect(panel).toBeVisible();
+
+      // No utilisation meter under the constraint any more.
+      expect(
+        await panel.getByRole("img").count(),
+        `${scope} still renders a meter`,
+      ).toBe(0);
+
+      const rows = scope === "table" ? panel.locator("tbody tr") : panel.locator("> li");
+      await expect(rows).toHaveCount(5);
+
+      for (let i = 0; i < 5; i++) {
+        const cell = rows
+          .nth(i)
+          .locator(scope === "table" ? "td" : "a")
+          .nth(scope === "table" ? 1 : 2);
+        const text = (await cell.innerText()).trim();
+
+        // The weakest process states a name and a reason, and no percentage.
+        expect(text, `${scope} row ${i} still shows a figure: ${text}`).not.toMatch(/\d+%/);
+        expect(text.split("\n").filter(Boolean).length, `${scope} row ${i}: ${text}`)
+          .toBeGreaterThanOrEqual(2);
+      }
+
+      // Vehicles per day is untouched.
+      if (scope === "rail") {
+        await expect(panel.getByText("veh / day")).toHaveCount(5);
+      } else {
+        const perDay = await rows
+          .nth(0)
+          .locator("td")
+          .last()
+          .innerText();
+        expect(perDay.trim()).toMatch(/^[\d,]+$/);
+      }
     }
   });
 
