@@ -1256,6 +1256,54 @@ test.describe("Mahindra Manufacturing Intelligence portal", () => {
     }
   });
 
+  test("the roadblock figure is the process page's own OEE", async ({ page }) => {
+    // The panel used to print capacity utilisation, which matched nothing on
+    // the page it links to. Both now read the same chain row, so this walks
+    // every roadblock through to its process page and compares.
+    await openOverview(page, "?range=7d");
+
+    const rows = page.locator("table", { hasText: "Weakest process" }).first().locator("tbody tr");
+    await expect(rows).toHaveCount(5);
+
+    const targets: { factory: string; href: string; shown: string }[] = [];
+    for (let i = 0; i < 5; i++) {
+      const cell = rows.nth(i).locator("td").nth(0);
+      const href = await cell.getByRole("link").first().getAttribute("href");
+      const shown = (await cell.innerText()).match(/([\d.]+)%/)?.[1];
+      expect(shown, `no figure in the constraint cell of row ${i}`).toBeTruthy();
+      targets.push({
+        factory: (await rows.nth(i).locator("th").first().innerText()).trim(),
+        href: href!,
+        shown: shown!,
+      });
+    }
+
+    for (const t of targets) {
+      await page.goto(t.href);
+      await page.waitForTimeout(3000);
+
+      // The Process OEE stat tile on that factory's process page.
+      const tile = await page.evaluate(() => {
+        for (const el of document.querySelectorAll("*")) {
+          if (el.children.length === 0 && /^Process OEE$/i.test(el.textContent?.trim() ?? "")) {
+            let n = el.parentElement;
+            for (let i = 0; i < 4 && n; i++) {
+              if (/%/.test((n as HTMLElement).innerText)) return (n as HTMLElement).innerText;
+              n = n.parentElement;
+            }
+          }
+        }
+        return "";
+      });
+      const onPage = tile.match(/([\d.]+)%/)?.[1];
+      expect(onPage, `no Process OEE tile at ${t.href}`).toBeTruthy();
+      expect(
+        onPage,
+        `${t.factory}: roadblock says ${t.shown}%, its process page says ${onPage}%`,
+      ).toBe(t.shown);
+    }
+  });
+
   test("the overview drops the events list — attention lives on the landing page", async ({
     page,
   }) => {

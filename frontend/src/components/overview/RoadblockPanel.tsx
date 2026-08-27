@@ -5,7 +5,7 @@ import { AlertTriangle } from "lucide-react";
 import type { FactoryRow } from "@/services/data/overview";
 import { bandForOee } from "@/domain/stamping/oee";
 import { fmtInt, fmtPct } from "@/lib/format";
-import { BAND_COLOR, STATUS, STATUS_TEXT } from "@/lib/theme";
+import { BAND_COLOR, STATUS } from "@/lib/theme";
 import { routes } from "@/lib/routes";
 
 /**
@@ -47,6 +47,17 @@ export function RoadblockPanel({
   layout?: "table" | "stack";
 }) {
   const ranked = [...factories].sort((a, b) => a.worstOee - b.worstOee);
+
+  /**
+   * The OEE the process page shows for this factory and process.
+   *
+   * Read off the same `chain` row that page reads, rather than recomputed here
+   * — a second derivation is a second thing to drift. The panel used to print
+   * capacity utilisation instead, which is a different question and did not
+   * match anything on the page it links to.
+   */
+  const processOee = (f: FactoryRow, processId: string) =>
+    f.chain.find((c) => c.processId === processId)?.oee ?? 0;
 
   if (layout === "stack") {
     return (
@@ -96,9 +107,10 @@ export function RoadblockPanel({
                     </span>
                     <span
                       className="tabular shrink-0 text-[11px] font-semibold"
-                      style={{ color: STATUS_TEXT.warning }}
+                      style={{ color: BAND_COLOR[bandForOee(processOee(f, f.bottleneckProcessId))] }}
+                      title={`${fmtPct(f.bottleneckUtilisation, 0)} of sustainable capacity`}
                     >
-                      {fmtPct(f.bottleneckUtilisation, 0)}
+                      {fmtPct(processOee(f, f.bottleneckProcessId), 1)}
                     </span>
                   </span>
                 </Link>
@@ -112,7 +124,7 @@ export function RoadblockPanel({
                       aria-hidden
                       className="shrink-0 text-[10px]"
                       style={{ color: BAND_COLOR[band] }}
-                      title={`${fmtPct(f.worstOee, 0)} OEE`}
+                      title={`${fmtPct(f.worstOee, 1)} OEE`}
                     >
                       {severe ? "▲" : "◐"}
                     </span>
@@ -193,9 +205,10 @@ export function RoadblockPanel({
                       </span>
                       <span
                         className="tabular shrink-0 text-[11px] font-semibold"
-                        style={{ color: STATUS_TEXT.warning }}
+                        style={{ color: BAND_COLOR[bandForOee(processOee(f, f.bottleneckProcessId))] }}
+                        title={`${fmtPct(f.bottleneckUtilisation, 0)} of sustainable capacity`}
                       >
-                        {fmtPct(f.bottleneckUtilisation, 0)}
+                        {fmtPct(processOee(f, f.bottleneckProcessId), 1)}
                       </span>
                     </span>
                   </Link>
@@ -208,7 +221,7 @@ export function RoadblockPanel({
                         aria-hidden
                         className="shrink-0 text-[10px]"
                         style={{ color: BAND_COLOR[band] }}
-                        title={`${fmtPct(f.worstOee, 0)} OEE`}
+                        title={`${fmtPct(f.worstOee, 1)} OEE`}
                       >
                         {severe ? "▲" : "◐"}
                       </span>
